@@ -1,0 +1,38 @@
+-- GENERIC CHANNEL SPECIFICATION
+
+channel read, write: Channels.Processes.Values
+channel start_read, ack: Channels.Processes
+channel transmit: Channels.Values
+
+LEFT(pid, chan) = write.chan.pid?mess -> transmit.chan!mess -> ack.chan!pid -> LEFT(pid, chan)
+
+RIGHT(pid, chan) = start_read.chan.pid -> transmit.chan?mess -> read.chan.pid!mess -> RIGHT(pid, chan)
+
+alphaLEFT(pid, chan) = {write.chan.pid.v, transmit.chan.v, ack.chan.pid | v <- Values}
+
+alphaRIGHT(pid, chan) = {start_read.chan.pid, transmit.chan.v, read.chan.pid.v | v <- Values}
+
+GENERIC_CHANNEL(pid, pid', chan) = 
+(
+    LEFT(pid, chan) 
+    [alphaLEFT(pid, chan) || alphaRIGHT(pid', chan)] 
+    RIGHT(pid', chan)
+) \ {transmit.chan.v | v <- Values}
+
+alphaGENERIC_CHANNEL(pid, pid', chan) = 
+{
+    write.chan.pid.v, 
+    ack.chan.pid, 
+    start_read.chan.pid', 
+    read.chan.pid'.v 
+    | v <- Values
+} 
+
+N_TO_ONE_GENERIC_CHANNEL(N, chan) =
+(
+    (||| p : {1..N} @ LEFT(p, chan))
+    [Union({alphaLEFT(p, chan) | p <- {1..N} }) || alphaRIGHT(0, chan)]
+    RIGHT(0, chan)
+) \ {transmit.chan.v | v <- Values}
+
+-- END OF MODEL SPECIFICATION

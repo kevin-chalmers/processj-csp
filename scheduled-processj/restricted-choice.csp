@@ -1,0 +1,199 @@
+include "alt.csp"
+include "alt-spec.csp"
+include "scheduler.csp"
+
+-- Set of ProcessJ processes.
+Processes = { 0..2 }
+
+-- Define actual processes
+NULL = -1
+W0 = 0
+W1 = 1
+R = 2
+
+-- Set of ProcessJ channels
+Channels = { 0..1 }
+
+-- Set of nullable ProcessJ processes
+Nullable_Processes = union({ NULL }, Processes)
+
+-- Data values. 0 and 1 are distinct different values.
+Values = { 0, 1 }
+
+-- VARIABLES
+
+CHANNELS = ||| c : Channels @ (CHANNEL(c) ||| MONITOR(c))
+
+alphaCHANNELS = 
+    union(
+        Union({alphaCHANNEL(c) | c <- Channels}),
+		Union({alphaMONITOR(c) | c <- Channels}))
+
+-- PROTECTED WRITING PROCESS
+
+RESTRICTED_PROCESS_WRITER(pid, chan) = 
+    run.pid -> 
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_WRITER'(pid, chan) =
+    write.chan.pid?message ->
+    claim.chan!pid ->
+    WRITE(pid, chan, message);
+    release.chan.pid ->
+    YIELD(pid);
+    ack.chan.pid ->
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+alphaRESTRICTED_PROCESS_WRITER(pid, chan) = 
+    union(alphaWRITE(pid, chan), 
+        {
+            write.chan.pid.v,
+            ack.chan.pid, 
+            yield.pid, 
+            run.pid,
+            claim.chan.pid,
+            release.chan.pid
+            | v <- Values
+        })
+
+RESTRICTED_PROCESS_SELECTOR(pid) =
+    run.pid ->
+    RESTRICTED_PROCESS_SELECTOR'(pid)
+
+RESTRICTED_PROCESS_SELECTOR'(pid) =
+    ready.pid.set!false ->
+    select.pid ->
+    ENABLE(pid);
+    YIELD(pid);
+    DISABLE(pid);
+    selected.get?idx ->
+    start_read.idx.pid ->
+    claim.idx.pid ->
+    READ(idx);
+    selected.get?idx ->
+    data.idx.get?message ->
+    release.idx!pid ->
+    read.idx.pid!message ->
+    RESTRICTED_PROCESS_SELECTOR'(pid)
+
+alphaRESTRICTED_PROCESS_SELECTOR(pid) = Union(
+{
+    alphaENABLE(pid),
+    alphaDISABLE(pid),
+    Union({ alphaREAD(c) | c <- Channels }),
+    {
+        run.pid,
+        yield.pid,
+        select.pid,
+        ready.pid.set.false,
+        selected.get.c,
+        start_read.c.pid,
+        read.c.pid.v,
+        claim.c.pid,
+        release.c.pid
+        | c <- Channels, v <- Values
+    }
+})
+
+RESTRICTED_SELECTOR_WRITERS(writer0, writer1, selector, chan0, chan1) = 
+(
+    (CHANNELS ||| ALT_VARIABLES)
+    [| union(diff(alphaCHANNELS, { ready.p.get.b | p <- Processes, b <- Bool }), alphaALT_VARIABLES) |]
+    (
+        RESTRICTED_PROCESS_WRITER(writer0, chan0) 
+        ||| RESTRICTED_PROCESS_WRITER(writer1, chan1) 
+        ||| RESTRICTED_PROCESS_SELECTOR(R)
+    )
+) \ union(alphaCHANNELS, alphaALT_VARIABLES)
+
+RESTRICTED_PJ_ALT_SYSTEM(writer0, writer1, selector, chan0, chan1, N, schedule) = 
+(
+    RESTRICTED_SELECTOR_WRITERS(writer0, writer1, selector, chan0, chan1)
+    [| alphaN_SCHEDULER_SYSTEM |]
+    N_SCHEDULER_SYSTEM(N, schedule)
+) \ alphaN_SCHEDULER_SYSTEM
+
+-- Deadlock checks
+-- Single scheduler protected alt -- both failures and divergences
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 2, 1>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 0, 2>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 2, 0>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 0, 1>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 1, 0>) :[deadlock free[FD]]
+-- Two scheduler protected alt -- only failures, scheduler is divergent
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 1, 2>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 2, 1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 0, 2>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 2, 0>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 0, 1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 1, 0>) :[deadlock free[F]]
+-- Four scheduler protected alt -- only failures, scheduler is divergent 
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 1, 2>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 2, 1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 0, 2>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 2, 0>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 0, 1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 1, 0>) :[deadlock free[F]]
+
+-- Determinism checks
+-- Single scheduler protected alt -- both failures and divergences
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>) :[deterministic[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 2, 1>) :[deterministic[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 0, 2>) :[deterministic[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 2, 0>) :[deterministic[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 0, 1>) :[deterministic[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 1, 0>) :[deterministic[FD]]
+
+-- Divergence checks
+-- Only single scheduler
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>) :[divergence free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 2, 1>) :[divergence free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 0, 2>) :[divergence free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 2, 0>) :[divergence free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 0, 1>) :[divergence free[FD]]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 1, 0>) :[divergence free[FD]]
+
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 1, 2>) :[deterministic]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 2, 1>) :[deterministic]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 0, 2>) :[deterministic]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 2, 0>) :[deterministic]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 0, 1>) :[deterministic]
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 1, 0>) :[deterministic]
+
+-- Refinement checks
+-- Specification for one scheduler system - will only work in traces as single scheduler
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 2, 1>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 0, 2>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <1, 2, 0>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 0, 1>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <2, 1, 0>)
+-- Specification for two scheduler system - will also only work in traces
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 1, 2>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <0, 2, 1>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 0, 2>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <1, 2, 0>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 0, 1>)
+assert ALT_SPEC_SYSTEM(R) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 2, <2, 1, 0>)
+-- Four scheduler will work in failures but not divergences as scheduler is divergent
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 1, 2>)
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 2, 1>)
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 0, 2>)
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 2, 0>)
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 0, 1>)
+assert ALT_SPEC_SYSTEM(R) [F= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 1, 0>)
+-- Four scheduler should now failures refine specification
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 1, 2>) [T= ALT_SPEC_SYSTEM(R)
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <0, 2, 1>) [T= ALT_SPEC_SYSTEM(R)
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 0, 2>) [T= ALT_SPEC_SYSTEM(R)
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <1, 2, 0>) [T= ALT_SPEC_SYSTEM(R)
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 0, 1>) [T= ALT_SPEC_SYSTEM(R)
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 4, <2, 1, 0>) [T= ALT_SPEC_SYSTEM(R)
+
+
+-- Check that single scheduler alt is just a generic channel
+
+assert RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>) \ {select.p | p <- Processes} [T= GENERIC_CHANNEL(0, 1, 0)
+
+assert GENERIC_CHANNEL(W0, R, 0) [T= RESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1, 1, <0, 1, 2>) \ {select.p, write.1.W1.v | p <- Processes, v <- Values}

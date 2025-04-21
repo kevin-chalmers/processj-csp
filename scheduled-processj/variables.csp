@@ -1,0 +1,12 @@
+-- Generic variable process
+
+-- Operations on a variable
+datatype Operations = get | set
+
+-- Generic variable process
+VARIABLE(var, val) =
+    (var.get!val -> VARIABLE(var, val))
+    []
+    (var.set?val -> VARIABLE(var, val))
+
+alphaVARIABLE(var, T) = {var.o.v | o <- Operations, v <- T}

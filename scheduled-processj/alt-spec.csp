@@ -1,0 +1,64 @@
+include "channel-spec.csp"
+
+-- GENETIC ALT SPECIFICATION
+
+channel select : Processes
+channel return : Channels
+
+ALT_SPEC(altpid, ready0, ready1, waiting) =
+    write.W0.0?mess -> ALT_SPEC(altpid, true, ready1, waiting)
+    []
+    write.W1.1?mess -> ALT_SPEC(altpid, ready0, true, waiting)
+    []
+    if (waiting == true) then
+        if (ready0 == true and ready1 == true) then
+            return!0 -> ALT_SPEC(altpid, false, ready1, false)
+            |~|
+            return!1 -> ALT_SPEC(altpid, ready0, false, false)
+        else if (ready0 == true) then
+            return!0 -> ALT_SPEC(altpid, false, ready1, false)
+        else if (ready1 == true) then
+            return!1 -> ALT_SPEC(altpid, ready0, false, false)
+        else
+            STOP
+    else
+        select.altpid -> ALT_SPEC(altpid, ready0, ready1, true)
+
+assert ALT_SPEC(R, false, false, false) :[deadlock free [F]]
+
+-- is ALT_SPEC not divergent ? can't it keep doing e.g. write.0.0.0 ??
+
+alphaALT_SPEC(altpid) = { write.c.p.v, return.c, select.altpid | c <- Channels, p <- Processes, v <- Values }
+
+ALT_USER(pid) =
+    select.pid ->           -- Kick off the alt
+    return?idx ->           -- Get a returned index of a ready channel back
+    start_read.idx.pid ->   -- Do the actual read from the chosen channel
+    transmit.idx?mess ->
+    read.idx.pid!mess ->    
+    ALT_USER(pid)           -- Recurse
+
+alphaALT_USER(pid) = 
+{ 
+    select.pid, 
+    return.c, 
+    start_read.c.pid, 
+    transmit.c.v, 
+    read.c.pid.v | c <- Channels, v <- Values 
+}
+
+PRIVATE_ALT_SPEC_SYSTEM(pid) = { transmit.c.v, return.c | c <- Channels, v <- Values }
+
+ALT_SPEC_SYSTEM(altpid) =
+(
+    ((||| w : Channels @ LEFT(w, w))
+    [Union({ alphaLEFT(w, w) | w <- Channels }) || alphaALT_SPEC(altpid)]
+    ALT_SPEC(altpid, false, false, false))
+    [union(Union({ alphaLEFT(w, w) | w <- Channels }), alphaALT_SPEC(altpid)) || alphaALT_USER(altpid)]
+    ALT_USER(altpid)
+) \ PRIVATE_ALT_SPEC_SYSTEM(altpid)
+
+assert ALT_SPEC_SYSTEM(R) :[deadlock free[F]]
+assert ALT_SPEC_SYSTEM(R) :[deadlock free[FD]]
+
+-- END GENERIC ALT MODEL

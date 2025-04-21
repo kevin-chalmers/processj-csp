@@ -1,0 +1,82 @@
+include "variables.csp"
+
+-- SCHEDULER SYSTEM IMPLEMENTATION
+
+-- Channel to access ready variable
+-- Ready is a flag used by a process and a scheduler to determine is the process can
+-- be scheduled.  Each process has a ready flag.
+channel ready : Processes.Operations.Bool
+
+-- Alphabet of the ready flags
+alphaREADY = Union({alphaVARIABLE(ready.p, Bool) | p <- Processes})
+
+-- channel for operations on the queue
+channel push, pop, run, yield : Processes
+
+-- QUEUE SPECIFICATION
+QUEUE(q) = 
+(
+    if (length(q) >= card(Processes)) then STOP 
+    else (push?v -> QUEUE(concat(<q, <v>>)))
+)
+[]
+(
+    if (length(q) == 0) then STOP 
+    else (pop!head(q) -> QUEUE(tail(q)))
+)
+
+-- Alphabet of queue
+alphaQUEUE = {push.p, pop.p | p <- Processes}
+
+-- Scheduler process
+-- It ensures only one process is runnning by accepting the run event for a process,
+-- then not accepting another until the equivalent yield occurs.  It can during 
+-- The process allowed to run is the one retrieved from the queue.
+SCHEDULER =
+    pop?pid ->
+    ready.pid.get?s ->
+    if (s) then
+        run.pid -> 
+        yield.pid -> 
+        push!pid -> 
+        SCHEDULER
+    else
+        push!pid -> 
+        SCHEDULER
+
+alphaSCHEDULER = 
+{
+    push.p, 
+    pop.p, 
+    ready.p.get.b, 
+    run.p, 
+    yield.p
+    | p <- Processes, b <- Bool
+}
+
+-- Ready flags do not synchronise with each other, so are interleaved
+-- These do synchronise with the scheduler.
+READY_FLAGS = ||| p : Processes @ VARIABLE(ready.p, true)
+
+alphaREADY_FLAGS = Union({alphaVARIABLE(ready.p, Bool) | p <- Processes})
+
+-- Scheduler system is the queue and scheduler running together checking ready flags.
+-- We give the scheduler the starting order <0, 1, 2>.  This is reasonable, as the processes
+-- will be added to the queue in order of creation.
+N_SCHEDULER_SYSTEM(N, schedule) = 
+(
+    (QUEUE(schedule) [| alphaQUEUE |] ||| n : {1..N} @ SCHEDULER)
+    [alphaSCHEDULER || alphaREADY_FLAGS]
+    READY_FLAGS
+) \ union(alphaQUEUE, {ready.p.get.b | p <- Processes, b <- Bool})
+
+-- Alphabet of the scheduler system
+alphaN_SCHEDULER_SYSTEM = 
+{
+    ready.p.set.b,
+    run.p,
+    yield.p
+    | p <- Processes, b <- Bool
+}
+
+YIELD(pid) = yield.pid -> run.pid -> SKIP

@@ -1,0 +1,13 @@
+-- MONITOR DEFINITION
+
+-- In order to model Java methods being 'synchronized' we need a monitor process.
+-- We only need one for the single channel the system uses. Since we do not use
+-- 'wait', 'notify', and 'notify' all, the monitor process is very simply. 
+-- It simply alternates between doing a claim and a release on the same process id
+channel claim, release: Channels.Processes
+
+MONITOR(chan) = claim.chan?pid -> release.chan.pid -> MONITOR(chan)
+
+alphaMONITOR(chan) = { claim.chan.pid, release.chan.pid | pid <- Processes }
+
+-- END OF MONITOR

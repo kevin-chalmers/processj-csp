@@ -1,0 +1,82 @@
+include "channel.csp"
+include "monitor.csp"
+
+-- The fields for PJAlt - i and selected.  These are used in the enable/disable sequence.
+-- As only one PJAlt exists we do not require a further indentifier.
+channel i, selected : Operations.Channels
+
+ALT_VARIABLES = VARIABLE(i, 0) ||| VARIABLE(selected, 0)
+
+alphaALT_VARIABLES = 
+{
+    i.o.c,
+    selected.o.c
+    | o <- Operations, c <- Channels
+}
+
+-- ALT
+
+ENABLE_LOOP(pid) = 
+    i.get?idx ->
+    claim.idx.pid ->
+    writer.idx.get?w ->
+    if (w != NULL) then
+        release.idx!pid ->
+        ready.pid.set!true ->
+        SKIP
+    else
+        reader.idx.set!pid ->
+        release.idx!pid ->
+        if (idx < card(Channels) - 1) then
+            i.set!(idx + 1) ->
+            ENABLE_LOOP(pid)
+        else
+            SKIP
+
+ENABLE(pid) = 
+    i.set!0 ->
+    ENABLE_LOOP(pid)
+
+alphaENABLE(pid) = 
+{
+    i.op.c,
+    writer.c.get.np,
+    ready.pid.set.true,
+    reader.c.set.pid,
+    claim.c.pid,
+    release.c.pid
+    | op <- Operations, c <- Channels, np <- Nullable_Processes
+}
+
+DISABLE_LOOP(pid) =
+    i.get?idx ->
+    claim.idx.pid ->
+    writer.idx.get?w ->
+    reader.idx.set!NULL ->
+    release.idx!pid ->
+    (
+        if (w != NULL) then
+            selected.set!idx ->
+            SKIP
+        else
+            SKIP
+    );
+    i.get?idx ->
+    if (idx > 0) then
+        i.set!(idx - 1) ->
+        DISABLE_LOOP(pid)
+    else
+        SKIP
+
+DISABLE(pid) = DISABLE_LOOP(pid)
+
+alphaDISABLE(pid) =
+{
+    i.op.c,
+    writer.c.get.np,
+    reader.c.set.NULL,
+    selected.set.c,
+    claim.c.pid,
+    release.c.pid
+    | op <- Operations, c <- Channels, np <- Nullable_Processes
+}

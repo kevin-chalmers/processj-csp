@@ -1,0 +1,219 @@
+include "channel-spec.csp"
+include "channel.csp"
+include "monitor.csp"
+include "scheduler.csp"
+
+-- Set of ProcessJ processes.
+Processes = { 0, 1 }
+NULL = -1
+
+-- Set of ProcessJ channels.
+Channels = { 0 }
+
+-- Set of nullable ProcessJ processes.
+Nullable_Processes = union({NULL}, Processes)
+
+-- Data values. 0 and 1 are distinct different values.
+Values = { 0, 1 }
+
+CHANNELS = ||| c : Channels @ (CHANNEL(c) ||| MONITOR(c))
+
+alphaCHANNELS = 
+    union(
+        Union({alphaCHANNEL(c) | c <- Channels}),
+		Union({alphaMONITOR(c) | c <- Channels}))
+
+-- PROTECTED READING AND WRITING PROCESSES
+
+RESTRICTED_PROCESS_WRITER(pid, chan) = 
+    run.pid -> 
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_WRITER'(pid, chan) =
+    write.chan.pid?message ->
+    claim.chan!pid ->
+    WRITE(pid, chan, message);
+    release.chan.pid ->
+    YIELD(pid);
+    ack.chan.pid ->
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+alphaRESTRICTED_PROCESS_WRITER(pid, chan) = 
+    union(alphaWRITE(pid, chan), 
+        {
+            write.chan.pid.v,
+            ack.chan.pid, 
+            yield.pid, 
+            run.pid,
+            claim.chan.pid,
+            release.chan.pid
+            | v <- Values
+        })
+
+RESTRICTED_PROCESS_READER(pid, chan) = 
+    run.pid -> 
+    RESTRICTED_PROCESS_READER'(pid, chan)
+
+RESTRICTED_PROCESS_READER'(pid, chan) = 
+    start_read.chan.pid ->
+    claim.chan!pid ->                -- 'synchronized' of isReadyToRead() (claim the monitor)
+    writer.chan.get?p ->
+    (if (p == -1) then               -- writer != null                         
+        reader.chan.set.pid ->         -- reader = this;            [done in isReadyToRead()]
+        ready.pid.set!false ->
+        release.chan.pid ->           -- release the monitor
+        YIELD(pid);
+        SKIP
+    else
+        release.chan.pid ->           -- release the monitor
+        SKIP
+    );
+    claim.chan!pid ->             -- 'synchronized' of read() (claim the monitor)
+    READ(chan);              -- c.read();
+    data.chan.get?message ->      -- (4) T myData = data;    [lifted out of read()]
+    let                           -- Silly trick to retain message in scope 
+        m = message                 -- Necessary because of the YIELD call.
+    within
+        release.chan.pid ->           -- release the monitor
+        YIELD(pid);                   -- yield()
+        read.chan.pid!m ->            -- (6) deliver the message to the environment
+        RESTRICTED_PROCESS_READER'(pid, chan)    -- Recurse to start over (simulate jump to L2)
+
+alphaRESTRICTED_PROCESS_READER(pid, chan) = 
+    union(alphaREAD(chan), 
+        {
+            start_read.chan.pid, 
+            data.chan.get.v, 
+            read.chan.pid.v, 
+            writer.chan.get.np,
+            reader.chan.set.pid, 
+            ready.pid.set.false, 
+            yield.pid, 
+            run.pid, 
+            claim.chan.pid, 
+            release.chan.pid
+            | v <- Values, np <- Nullable_Processes
+        })
+
+RESTRICTED_READER_WRITER(pid, pid', chan) = 
+(
+    (RESTRICTED_PROCESS_WRITER(pid, chan) ||| RESTRICTED_PROCESS_READER(pid', chan))
+    [| alphaCHANNELS |]
+    CHANNELS
+) \ alphaCHANNELS
+
+alphaRESTRICTED_READER_WRITER(pid, pid', chan) = 
+    union(alphaRESTRICTED_PROCESS_WRITER(pid, chan), alphaRESTRICTED_PROCESS_READER(pid', chan))
+
+RESTRICTED_PJ_CHAN_SYSTEM(pid, pid', chan, n, schedule) = 
+(
+    RESTRICTED_READER_WRITER(pid, pid', chan) 
+    [| alphaN_SCHEDULER_SYSTEM |]
+    N_SCHEDULER_SYSTEM(n, schedule)
+) \ alphaN_SCHEDULER_SYSTEM
+
+-- Protected channels should still be deadlock free and deterministice with one scheduler.
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>) :[deadlock free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>) :[deadlock free[FD]]
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>) :[divergence free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>) :[divergence free[FD]]
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>) :[deterministic[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>) :[deterministic[FD]]
+
+-- However, will fail in FD when two schedulers as one scheduler will spin when waiting for something to be ready.
+
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) :[deadlock free[FD]]
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) :[deadlock free[FD]]
+
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) :[divergence free[FD]]
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) :[divergence free[FD]]
+
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) :[deterministic[FD]]
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) :[deterministic[FD]]
+
+-- But they will pass in just the F model.
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) :[deadlock free[F]]
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) :[deterministic[F]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) :[deterministic[F]]
+
+-- Test to see still refines in trace model with protection and single scheduler.
+
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>)
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>)
+
+-- Can now verify in failures, and both ways in traces
+
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>)
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>)
+assert GENERIC_CHANNEL(0, 1, 0) [F= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>)
+assert GENERIC_CHANNEL(0, 1, 0) [F= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>)
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) [T= GENERIC_CHANNEL(0, 1, 0)
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) [T= GENERIC_CHANNEL(0, 1, 0)
+
+-- these still fail because read and write are scheduled, and therefore may not be ready at the same time.
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <0,1>) [F= GENERIC_CHANNEL(0, 1, 0)
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 2, <1,0>) [F= GENERIC_CHANNEL(0, 1, 0)
+
+-- VERIFICATION OF FOUR SCHEDULER SYSTEM
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>) :[deadlock free[F]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>) :[deadlock free[F]]
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>) :[deterministic[F]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>) :[deterministic[F]]
+
+-- Can now verify in failures, and both ways in traces
+
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>)
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>)
+assert GENERIC_CHANNEL(0, 1, 0) [F= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>)
+assert GENERIC_CHANNEL(0, 1, 0) [F= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>)
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>) [T= GENERIC_CHANNEL(0, 1, 0)
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>) [T= GENERIC_CHANNEL(0, 1, 0)
+
+-- still cannot verify, actually worse as any scheduler can spin stopping progress (no acceptances)
+
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <0,1>) [F= GENERIC_CHANNEL(0, 1, 0)
+assert not RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 4, <1,0>) [F= GENERIC_CHANNEL(0, 1, 0)
+
+RESTRICTED_CHAN(W, R, chan, schedule) =
+    if (head(schedule) == W) then
+        write.chan.W?mess ->
+        start_read.chan.R ->
+        RESTRICTED_CHAN'(mess, W, R, chan)
+    else
+        start_read.chan.R ->
+        write.chan.W?mess ->
+        RESTRICTED_CHAN'(mess, W, R, chan)
+
+RESTRICTED_CHAN'(last, W, R, chan) =
+    ack.chan.W ->
+    write.chan.W?mess ->
+    read.chan.R.last ->
+    start_read.chan.R ->
+    RESTRICTED_CHAN'(mess, W, R, chan)
+
+-- Should fail
+assert RESTRICTED_CHAN(0, 1, 0, <0, 1>) [T= GENERIC_CHANNEL(0, 1, 0)
+-- Should pass
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_CHAN(0, 1, 0, <0, 1>)
+-- Should fail
+assert RESTRICTED_CHAN(0, 1, 0, <1, 0>) [T= GENERIC_CHANNEL(0, 1, 0)
+-- Should pass
+assert GENERIC_CHANNEL(0, 1, 0) [T= RESTRICTED_CHAN(0, 1, 0, <1, 0>)
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>) [FD= RESTRICTED_CHAN(0, 1, 0, <0, 1>)
+assert RESTRICTED_CHAN(0, 1, 0, <0, 1>) [FD= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>)
+assert RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>) [FD= RESTRICTED_CHAN(0, 1, 0, <1, 0>)
+assert RESTRICTED_CHAN(0, 1, 0, <1, 0>) [FD= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <1,0>)
+
+
+assert GENERIC_CHANNEL(0, 1, 0) [FD= RESTRICTED_PJ_CHAN_SYSTEM(0, 1, 0, 1, <0,1>)

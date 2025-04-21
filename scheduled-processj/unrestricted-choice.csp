@@ -1,0 +1,119 @@
+include "variables.csp"
+include "alt.csp"
+include "alt-spec.csp"
+
+-- Set of ProcessJ processes.
+Processes = { 0..2 }
+
+-- Define actual processes
+NULL = -1
+W0 = 0
+W1 = 1
+R = 2
+
+-- Set of ProcessJ channels
+Channels = { 0..1 }
+
+-- Set of nullable ProcessJ processes
+Nullable_Processes = union({ NULL }, Processes)
+
+-- Data values. 0 and 1 are distinct different values.
+Values = { 0, 1 }
+
+channel ready : Processes.Operations.Bool
+
+-- Alphabet of the ready flags
+alphaREADY = Union({alphaVARIABLE(ready.p, Bool) | p <- Processes})
+
+READY_FLAGS = ||| p : Processes @ VARIABLE(ready.p, true)
+
+alphaREADY_FLAGS = Union({alphaVARIABLE(ready.p, Bool) | p <- Processes})
+
+YIELD(pid) = ready.pid.get.true -> SKIP
+
+-- VARIABLES
+
+CHANNELS = ||| c : Channels @ (CHANNEL(c) ||| MONITOR(c))
+
+alphaCHANNELS = 
+    union(
+        Union({alphaCHANNEL(c) | c <- Channels}),
+		Union({alphaMONITOR(c) | c <- Channels}))
+
+-- PROTECTED WRITING PROCESS
+
+UNRESTRICTED_PROCESS_WRITER(pid, chan) =
+    write.chan.pid?message ->
+    claim.chan!pid ->
+    WRITE(pid, chan, message);
+    release.chan.pid ->
+    YIELD(pid);
+    ack.chan.pid ->
+    UNRESTRICTED_PROCESS_WRITER(pid, chan)
+
+alphaUNRESTRICTED_PROCESS_WRITER(pid, chan) = 
+    union(alphaWRITE(pid, chan), 
+        {
+            write.chan.pid.v,
+            ack.chan.pid, 
+            claim.chan.pid,
+            release.chan.pid
+            | v <- Values
+        })
+
+UNRESTRICTED_PROCESS_SELECTOR(pid) =
+    ready.pid.set!false ->
+    select.pid ->
+    ENABLE(pid);
+    YIELD(pid);
+    DISABLE(pid);
+    selected.get?idx ->
+    start_read.idx.pid ->
+    claim.idx.pid ->
+    READ(idx);
+    selected.get?idx ->
+    data.idx.get?message ->
+    release.idx!pid ->
+    read.idx.pid!message ->
+    UNRESTRICTED_PROCESS_SELECTOR(pid)
+
+alphaUNRESTRICTED_PROCESS_SELECTOR(pid) = Union(
+{
+    alphaENABLE(pid),
+    alphaDISABLE(pid),
+    Union({ alphaREAD(c) | c <- Channels }),
+    {
+        select.pid,
+        ready.pid.set.false,
+        selected.get.c,
+        start_read.c.pid,
+        read.c.pid.v,
+        claim.c.pid,
+        release.c.pid
+        | c <- Channels, v <- Values
+    }
+})
+
+UNRESTRICTED_SELECTOR_WRITERS(writer0, writer1, selector, chan0, chan1) = 
+(
+    (CHANNELS ||| ALT_VARIABLES)
+    [| union(diff(alphaCHANNELS, { ready.p.get.b | p <- Processes, b <- Bool }), alphaALT_VARIABLES) |]
+    (
+        UNRESTRICTED_PROCESS_WRITER(writer0, chan0) 
+        ||| UNRESTRICTED_PROCESS_WRITER(writer1, chan1) 
+        ||| UNRESTRICTED_PROCESS_SELECTOR(selector)
+    )
+) \ union(alphaCHANNELS, alphaALT_VARIABLES)
+
+UNRESTRICTED_PJ_ALT_SYSTEM(writer0, writer1, selector, chan0, chan1) = 
+(
+    UNRESTRICTED_SELECTOR_WRITERS(writer0, writer1, selector, chan0, chan1)
+    [| alphaREADY_FLAGS |]
+    READY_FLAGS
+) \ alphaREADY_FLAGS
+
+assert UNRESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1) :[deadlock free[FD]]
+assert UNRESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1) :[divergence free[FD]]
+assert not UNRESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1) :[deterministic[FD]]
+assert ALT_SPEC_SYSTEM(R) [FD= UNRESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1)
+assert UNRESTRICTED_PJ_ALT_SYSTEM(W0, W1, R, 0, 1) [FD= ALT_SPEC_SYSTEM(R)

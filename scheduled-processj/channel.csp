@@ -1,0 +1,67 @@
+-- Fields 'writer' and 'reader'. 'writer' and 'reader' belong to a channel.
+-- A value of -1 means 'null', that is, no process is registered as the 
+-- reader/writer
+channel writer, reader : Channels.Operations.Nullable_Processes
+
+-- field 'data'. 'data' belongs to a channel. This is the data values written by a writer and
+-- read by a reader. Again, -1 is 'null', and like any other variable, values can be set with 
+-- operation 'set' and read with operation 'get'.
+channel data : Channels.Operations.Values
+
+-- Generic ProcessJ channel specification
+-- Requires the channel number
+CHANNEL :: (Int) -> Proc
+CHANNEL(chan) =
+    VARIABLE(writer.chan, NULL) 
+    ||| VARIABLE(reader.chan, NULL) 
+    ||| VARIABLE(data.chan, 0)
+
+alphaCHANNEL(chan) =
+{
+    writer.chan.o.np,
+    reader.chan.o.np,
+    data.chan.o.v
+    | o <- Operations, np <- Nullable_Processes, v <- Values
+}
+
+-- PROCESSJ CHANNEL METHODS
+
+WRITE(pid, chan, item) = 
+    data.chan.set!item ->         -- (1) data = item;
+    writer.chan.set!pid ->        -- (2) writer = p;
+    ready.pid.set!false ->
+    reader.chan.get?v ->
+    if (v != NULL) then
+        ready.v.set!true -> SKIP
+    else
+        SKIP
+
+alphaWRITE(pid, chan) = 
+{ 
+    data.chan.set.v, 
+    writer.chan.set.pid, 
+    ready.pid.set.false,
+    ready.p.set.true, 
+    reader.chan.get.np 
+    | v <- Values, p <- Processes, np <- Nullable_Processes, b <- Bool
+}
+
+READ(chan) = 
+    writer.chan.get?w ->        -- (1) get the 'writer' field.
+    if (w == NULL) then STOP
+    else
+        ready.w.set!true ->         -- (1) writer.setReady();
+        writer.chan.set!NULL ->       -- moved (2) writer = null;
+        reader.chan.set!NULL ->       -- moved (3) reader = null;
+        SKIP
+
+alphaREAD(chan) =
+{
+    writer.chan.get.p,
+    ready.p.set.true,
+    writer.chan.set.-1, 
+    reader.chan.set.-1 
+    | p <- Nullable_Processes
+}
+
+-- END OF PROCESSJ METHODS
