@@ -4,10 +4,10 @@ transparent wbisim
 
 include "variables.csp"
 include "queue.csp"
-include "memory copy.csp"
-include "queue-paper copy.csp"
-include "queue-java copy.csp"
-include "queue-spec copy.csp"
+include "memory.csp"
+include "queue-paper.csp"
+include "queue-java.csp"
+include "queue-spec.csp"
 
 -- Instance of the Q
 instance Q = Queue
