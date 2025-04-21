@@ -1,0 +1,86 @@
+include "channel.csp"
+
+-- The fields for PJAlt - i and selected.  These are used in the enable/disable sequence.
+-- As only one PJAlt exists we do not require a further indentifier.
+channel i, selected : Operations.Channels
+
+ALT_VARIABLES = 
+    VARIABLE(selected, NONE)
+    ||| VARIABLE(i, NONE)
+
+alphaALT_VARIABLES = 
+{
+    selected.o.c,
+    i.o.c
+    | o <- Operations, c <- Channels
+}
+
+-- ALT
+ENABLE_LOOP(pid, <>) = 
+    i.store!NONE ->
+    SKIP
+
+ENABLE_LOOP(pid, <next>^guards) = 
+    channel_claim.next.pid ->
+    writer.next.load?w ->
+    if (w != NULL) then
+        i.store!next ->
+        channel_release.next!pid ->
+        ready.pid.store!true ->
+        SKIP
+    else
+        reader.next.store!pid ->
+        channel_release.next!pid ->
+        ENABLE_LOOP(pid, guards)
+
+ENABLE(pid) =
+    ENABLE_LOOP(pid, seq(Active_Channels))
+
+alphaENABLE(pid) = 
+{
+    writer.c.load.np,
+    ready.pid.store.true,
+    reader.c.store.pid,
+    channel_claim.c.pid,
+    channel_release.c.pid
+    | c <- Active_Channels, np <- Nullable_Processes
+}
+
+DISABLE_LOOP(pid, <>) = SKIP
+
+DISABLE_LOOP(pid, <next>^procs) =
+    channel_claim.next.pid ->
+    writer.next.load?w ->
+    reader.next.store!NULL ->
+    channel_release.next!pid ->
+    (
+        if (w != NULL) then
+            selected.store!next ->
+            SKIP
+        else
+            SKIP
+    );
+    DISABLE_LOOP(pid, procs)
+
+reverse :: (Set a) => (<a>) -> <a>
+reverse(<>) = <>
+reverse(<x>^xs) = reverse(xs)^<x>
+
+build_disable_list(<>, y) = <>
+build_disable_list(<x>^xs, y) =
+    if x != y then <x>^build_disable_list(xs, y)
+    else <x>
+
+DISABLE(pid) =
+    i.load?end ->
+    DISABLE_LOOP(pid, reverse(build_disable_list(seq(Active_Channels), end)))
+
+alphaDISABLE(pid) =
+{
+    writer.c.load.np,
+    reader.c.store.NULL,
+    selected.store.c,
+    channel_claim.c.pid,
+    channel_release.c.pid
+    | c <- Active_Channels, np <- Nullable_Processes
+}

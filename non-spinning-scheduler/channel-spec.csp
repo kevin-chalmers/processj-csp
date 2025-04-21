@@ -1,0 +1,50 @@
+
+channel read, write: Channels.Processes.Values
+channel start_read, ack: Channels.Processes
+channel transmit: Channels.Values
+
+LEFT(pid, chan) = 
+    write.chan.pid?mess -> 
+    transmit.chan!mess -> 
+    ack.chan!pid -> 
+    LEFT(pid, chan)
+
+RIGHT(pid, chan) = 
+    start_read.chan.pid -> 
+    transmit.chan?mess -> 
+    read.chan.pid!mess -> 
+    RIGHT(pid, chan)
+
+alphaLEFT(pid, chan) =
+{
+    write.chan.pid.v, 
+    transmit.chan.v, 
+    ack.chan.pid
+    | v <- Values
+}
+
+alphaRIGHT(pid, chan) =
+{
+    start_read.chan.pid, 
+    transmit.chan.v, 
+    read.chan.pid.v
+    | v <- Values
+}
+
+PRIVATE_CHANNEL_SPEC(chan) =
+{
+    transmit.chan.v
+    | v <- Values
+}
+
+GENERIC_CHANNEL(writing_proc, reading_proc, chan) = 
+(
+    LEFT(writing_proc, chan) 
+    [alphaLEFT(writing_proc, chan) || alphaRIGHT(reading_proc, chan)] 
+    RIGHT(reading_proc, chan)
+) \ PRIVATE_CHANNEL_SPEC(chan)
+
+alphaGENERIC_CHANNEL(writing_proc, reading_proc, chan) = 
+    diff(union(alphaLEFT(writing_proc, chan), alphaRIGHT(reading_proc, chan)), PRIVATE_CHANNEL_SPEC(chan))
+
+-- END OF MODEL SPECIFICATION

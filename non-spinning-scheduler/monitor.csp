@@ -1,0 +1,13 @@
+MONITOR :: (Nullable_Processes=>Event, Nullable_Processes=>Event) -> Proc
+MONITOR(claim, release) =
+    claim?pid ->
+    release.pid ->
+    MONITOR(claim, release)
+
+alphaMONITOR :: (Nullable_Processes=>Event, Nullable_Processes=>Event) -> {Event}
+alphaMONITOR(claim, release) =
+{
+    claim.pid,
+    release.pid
+    | pid <- Processes
+}

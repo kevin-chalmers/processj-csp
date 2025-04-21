@@ -1,0 +1,88 @@
+include "channel.csp"
+
+-- The fields for PJAlt - i, selected, and next.  These are used in the enable/disable sequence.
+-- As only one PJAlt exists we do not require a further indentifier.
+channel i, selected, next : Operations.Channels
+
+ALT_VARIABLES = VARIABLE(i, 0) ||| VARIABLE(selected, 0) ||| VARIABLE(next, 0)
+
+alphaALT_VARIABLES = 
+{
+    i.o.c,
+    selected.o.c,
+    next.o.c
+    | o <- Operations, c <- Channels
+}
+
+-- ALT
+
+ENABLE_LOOP(pid, count) = 
+    i.get?idx ->
+    channel_claim.idx.pid ->
+    writer.idx.get?w ->
+    if (w != NULL) then
+        channel_release.idx!pid ->
+        ready.pid.set!true ->
+        SKIP
+    else
+        reader.idx.set!pid ->
+        channel_release.idx!pid ->
+        if (count > 0) then
+            i.set!((idx + 1) % card(Channels)) ->
+            ENABLE_LOOP(pid, count - 1)
+        else
+            SKIP
+
+ENABLE(pid) = 
+    next.get?n ->
+    i.set!n ->
+    ENABLE_LOOP(pid, card(Channels))
+
+alphaENABLE(pid) = 
+{
+    i.op.c,
+    next.get.c,
+    writer.c.get.np,
+    ready.pid.set.true,
+    reader.c.set.pid,
+    channel_claim.c.pid,
+    channel_release.c.pid
+    | op <- Operations, c <- Channels, np <- Nullable_Processes
+}
+
+DISABLE_LOOP(pid, count) =
+    i.get?idx ->
+    channel_claim.idx.pid ->
+    writer.idx.get?w ->
+    reader.idx.set!NULL ->
+    channel_release.idx!pid ->
+    (
+        if (w != NULL) then
+            selected.set!idx ->
+            SKIP
+        else
+            SKIP
+    );
+    i.get?idx ->
+    if (count > 0) then
+        i.set!((if (idx > 0) then idx - 1 else (card(Channels) - 1))) ->
+        DISABLE_LOOP(pid, count - 1)
+    else
+        selected.get?s ->
+        next.set!((s + 1) % card(Channels)) ->
+        SKIP
+
+DISABLE(pid) = 
+    DISABLE_LOOP(pid, card(Channels))
+
+alphaDISABLE(pid) =
+{
+    i.op.c,
+    writer.c.get.np,
+    reader.c.set.NULL,
+    selected.set.c,
+    next.set.c,
+    channel_claim.c.pid,
+    channel_release.c.pid
+    | op <- Operations, c <- Channels, np <- Nullable_Processes
+}

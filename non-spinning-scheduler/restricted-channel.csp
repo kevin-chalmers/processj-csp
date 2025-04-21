@@ -1,0 +1,123 @@
+transparent sbisim
+transparent wbisim
+transparent dbisim
+transparent normal
+
+include "channel-spec.csp"
+include "channel.csp"
+include "scheduler.csp"
+
+-- Set of ProcessJ processes.
+datatype Nullable_Processes = NULL | P1 | P2
+subtype Processes = P1 | P2
+
+-- Set of ProcessJ channels.
+datatype Channels = C1
+
+-- Data values. A and B are distinct different values.
+datatype Values = A | B
+
+CHANNELS = ||| c : Channels @ CHANNEL(c)
+
+alphaCHANNELS = Union({alphaCHANNEL(c) | c <- Channels})
+
+-- PROTECTED READING AND WRITING PROCESSES
+RESTRICTED_PROCESS_WRITER(pid, chan) = 
+    schedule!pid ->
+    run.pid -> 
+    running.pid.store!true ->
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_WRITER'(pid, chan) =
+    write.chan.pid?message ->
+    channel_claim.chan!pid ->
+    WRITE(pid, chan, message);
+    channel_release.chan.pid ->
+    YIELD(pid);
+    ack.chan.pid ->
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_READER(pid, chan) = 
+    schedule.pid ->
+    run.pid ->
+    running.pid.store!true ->
+    RESTRICTED_PROCESS_READER'(pid, chan)
+
+RESTRICTED_PROCESS_READER'(pid, chan) = 
+    start_read.chan.pid ->
+    channel_claim.chan!pid ->                -- 'synchronized' of isReadyToRead() (claim the monitor)
+    writer.chan.load?p ->
+    (
+        if (p == NULL) then               -- writer != null                         
+            reader.chan.store.pid ->         -- reader = this;            [done in isReadyToRead()]
+            ready.pid.store!false ->
+            channel_release.chan.pid ->           -- release the monitor
+            YIELD(pid);
+            SKIP
+        else
+            channel_release.chan.pid ->           -- release the monitor
+            SKIP
+    );
+    channel_claim.chan!pid ->             -- 'synchronized' of read() (claim the monitor)
+    READ(pid, chan);              -- c.read();
+    data.chan.load?message ->      -- (4) T myData = data;    [lifted out of read()]
+    channel_release.chan.pid ->           -- release the monitor
+    (
+        YIELD(pid);                   -- yield()
+        read.chan.pid!message ->            -- (6) deliver the message to the environment
+        RESTRICTED_PROCESS_READER'(pid, chan)    -- Recurse to start over (simulate jump to L2)
+    )
+
+RESTRICTED_READER_WRITER(writer_proc, reader_proc, chan) = wbisim(
+(
+    (RESTRICTED_PROCESS_WRITER(writer_proc, chan) ||| RESTRICTED_PROCESS_READER(reader_proc, chan))
+    [| alphaCHANNELS |]
+    CHANNELS
+) \ alphaCHANNELS)
+
+RESTRICTED_PJ_CHAN_SYSTEM(writer_proc, reader_proc, chan, n) = wbisim(
+(
+    wbisim(RESTRICTED_READER_WRITER(writer_proc, reader_proc, chan))
+    [| alphaN_SCHEDULER_SYSTEM |]
+    wbisim(N_SCHEDULER_SYSTEM(n))
+) \ alphaN_SCHEDULER_SYSTEM)
+
+-- Protected channels should still be deadlock free and deterministice with one scheduler.
+
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[deadlock free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[divergence free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[deterministic[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[deadlock free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[divergence free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[deterministic[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 3) :[deadlock free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 3) :[divergence free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 3) :[deterministic[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 4) :[deadlock free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 4) :[divergence free[FD]]
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 4) :[deterministic[FD]]
+
+assert GENERIC_CHANNEL(P1, P2, C1) :[divergence free[FD]]
+
+
+-- Test to see still refines in trace model with protection and single scheduler.
+assert GENERIC_CHANNEL(P1, P2, C1) [T= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1)
+assert not GENERIC_CHANNEL(P1, P2, C1) [F= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1)
+assert not GENERIC_CHANNEL(P1, P2, C1) [FD= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1)
+
+-- these _all_ fail.
+assert not RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) [T= GENERIC_CHANNEL(P1, P2, C1)
+assert not RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) [F= GENERIC_CHANNEL(P1, P2, C1)
+assert not RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) [FD= GENERIC_CHANNEL(P1, P2, C1)
+
+-- Can now verify in failures, and both ways in FD
+assert GENERIC_CHANNEL(P1, P2, C1) [FD= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2)
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) [FD= GENERIC_CHANNEL(P1, P2, C1)
+
+-- VERIFICATION OF THREE SCHEDULER SYSTEM
+assert GENERIC_CHANNEL(P1, P2, C1) [FD= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 3)
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 3) [FD= GENERIC_CHANNEL(P1, P2, C1)
+
+-- VERIFICATION OF FOUR SCHEDULER SYSTEM
+assert GENERIC_CHANNEL(P1, P2, C1) [FD= RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 4)
+assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 4) [FD= GENERIC_CHANNEL(P1, P2, C1)

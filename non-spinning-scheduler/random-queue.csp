@@ -1,0 +1,20 @@
+QUEUE :: (Complete a, Set a) => (a=>Event, a=>Event, <a>, Int) -> Proc
+QUEUE(enqueue, dequeue, q, CAP) = QUEUE'(enqueue, dequeue, q, CAP, true)
+
+QUEUE' :: (Complete a, Set a) => (a=>Event, a=>Event, <a>, Int, Bool) -> Proc
+
+QUEUE'(enqueue, dequeue, q, CAP, random) =
+    length(q) < CAP & enqueue?v -> QUEUE'(enqueue, dequeue, q^<v>, CAP, true)
+    []
+    length(q) > 0 & dequeue!head(q) -> QUEUE'(enqueue, dequeue, tail(q), CAP, true)
+    []
+    length(q) > 0 & random & QUEUE'(enqueue, dequeue, tail(q)^<head(q)>, CAP, false)
+
+
+alphaQUEUE :: (Complete a, Set a) => (a=>Event, a=>Event, {a}) -> {Event}
+alphaQUEUE(enqueue, dequeue, T) =
+{
+    enqueue.v,
+    dequeue.v
+    | v <- T
+} 
