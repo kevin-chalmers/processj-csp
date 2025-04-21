@@ -1,0 +1,53 @@
+datatype Operations = load | store
+
+VARIABLE :: (Complete a) => (a=>Event, a=>Event, a) -> Proc
+VARIABLE(myLoad, myStore, val) =
+(
+    myLoad!val ->
+    VARIABLE(myLoad, myStore, val)
+)
+[]
+(
+    myStore?val ->
+    VARIABLE(myLoad, myStore, val)
+)
+
+alphaVARIABLE :: (Set a) => (a=>Event, a=>Event, {a}) -> {Event}
+alphaVARIABLE(myLoad, myStore, T) =
+{
+    myLoad.v,
+    myStore.v
+    |
+        v <- T
+}
+
+ATOMIC_VARIABLE :: (Complete a, Eq a) => (a=>Event, a=>Event, a=>a=>Bool=>Event, a) -> Proc
+ATOMIC_VARIABLE(myLoad, myStore, atomic, val) =
+(
+    myLoad!val ->
+    ATOMIC_VARIABLE(myLoad, myStore, atomic, val)
+)
+[]
+(
+    myStore?val ->
+    ATOMIC_VARIABLE(myLoad, myStore, atomic, val)
+)
+[]
+(
+    atomic?oldVal?newVal!(val == oldVal) ->
+    if (val == oldVal) then
+        ATOMIC_VARIABLE(myLoad, myStore, atomic, newVal)
+    else
+        ATOMIC_VARIABLE(myLoad, myStore, atomic, val)
+)
+
+alphaATOMIC_VARIABLE :: (Set a) => (a=>Event, a=>Event, a=>a=>Bool=>Event, {a}) -> {Event}
+alphaATOMIC_VARIABLE(myLoad, myStore, atomic, T) =
+    union(alphaVARIABLE(myLoad, myStore, T),
+    {
+        atomic.v1.v2.b
+        |
+            v1 <- T,
+            v2 <- T,
+            b <- Bool
+    })

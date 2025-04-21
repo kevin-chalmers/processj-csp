@@ -1,0 +1,65 @@
+module Queue
+exports
+    -- A queue is represented by a head and tail
+    datatype QUEUE = HEAD | TAIL
+    -- Head and tail are represented as atomic node references
+    -- Can load and store (queue) or CAS
+    channel queue : QUEUE.Operations.mem::Nodes
+    channel queue_atomic : QUEUE.mem::Nodes.mem::Nodes.Bool
+
+    -- Initialises the queue object
+    CREATE_QUEUE =
+        newNode?mem::NODE.new ->
+        setNext.mem::NODE.new!mem::ANODE.new ->
+        setValue.mem::NODE.new!mem::AINT.new ->
+        getNext.mem::NODE.new?tmp : mem::AtomicNodes_Not_Null ->
+        setNode.tmp!nullNode ->
+        queue.HEAD.store!mem::NODE.new ->
+        queue.TAIL.store!mem::NODE.new ->
+        SKIP
+
+    -- Alphabet for create queue
+    alphaCREATE_QUEUE =
+    {
+        newNode.nn,
+        setNext.nn.an,
+        setValue.nn.ai,
+        getNext.nn.an,
+        setNode.an.n,
+        queue.HEAD.store.nn,
+        queue.TAIL.store.nn
+        |
+            n <- mem::Nodes,
+            nn <- mem::Nodes_Not_Null,
+            an <- mem::AtomicNodes_Not_Null,
+            ai <- mem::AtomicIntegers_Not_Null
+    }
+
+    -- Process representing the queue in memory
+    -- Atomic reference for the head and tail interleaved
+    QUEUE_OBJ = 
+        ATOMIC_VARIABLE(
+            queue.HEAD.load, 
+            queue.HEAD.store,
+            queue_atomic.HEAD, 
+            mem::NODE.mem::NULL)
+        |||
+        ATOMIC_VARIABLE(
+            queue.TAIL.load,
+            queue.TAIL.store,
+            queue_atomic.TAIL,
+            mem::NODE.mem::NULL)
+    
+    -- Alphabet for the queue
+    alphaQUEUE = union(
+        alphaATOMIC_VARIABLE(
+            queue.HEAD.load,
+            queue.HEAD.store,
+            queue_atomic.HEAD, 
+            mem::Nodes), 
+        alphaATOMIC_VARIABLE(
+            queue.TAIL.load,
+            queue.TAIL.store,
+            queue_atomic.TAIL, 
+            mem::Nodes))
+endmodule
