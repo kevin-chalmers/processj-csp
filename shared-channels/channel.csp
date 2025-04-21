@@ -1,0 +1,88 @@
+include "variables.csp"
+include "monitor.csp"
+
+-- Fields 'writer' and 'reader'. 'writer' and 'reader' belong to a channel.
+-- A value of -1 means 'null', that is, no process is registered as the 
+-- reader/writer
+channel writer, reader : Channels.Operations.Nullable_Processes
+
+-- field 'data'. 'data' belongs to a channel. This is the data values written by a writer and
+-- read by a reader. Again, -1 is 'null', and like any other variable, values can be set with 
+-- operation 'set' and read with operation 'get'.
+channel data : Channels.Operations.Values
+
+-- Channels to work with monitor protecting channel
+channel channel_claim, channel_release : Channels.Processes
+
+-- Generic ProcessJ channel specification
+-- Requires the channel number
+CHANNEL :: (Channels) -> Proc
+CHANNEL(chan) =
+    VARIABLE(writer.chan, NULL) 
+    ||| VARIABLE(reader.chan, NULL) 
+    ||| VARIABLE(data.chan, A)
+    ||| MONITOR(channel_claim.chan, channel_release.chan)
+
+alphaCHANNEL(chan) =
+{
+    writer.chan.o.np,
+    reader.chan.o.np,
+    data.chan.o.v,
+    channel_claim.chan.p,
+    channel_release.chan.p
+    | o <- Operations, np <- Nullable_Processes, p <- Processes, v <- Values
+}
+
+-- PROCESSJ CHANNEL METHODS
+
+WRITE(pid, chan, item) = 
+    data.chan.store!item ->         -- (1) data = item;
+    writer.chan.store!pid ->        -- (2) writer = p;
+    ready.pid.store!false ->
+    reader.chan.load?v ->
+    if (v != NULL) then
+        SCHEDULE(pid, v)
+    else
+        SKIP
+
+alphaWRITE(pid, chan) = 
+{ 
+    data.chan.store.v, 
+    writer.chan.store.pid, 
+    reader.chan.load.np,
+    ready.pid.store.false,
+    ready.p.load.b,
+    running.p.load.b,
+    claim_process.p.pid,
+    release_process.p.pid,
+    schedule.p
+    | v <- Values, p <- Processes, np <- Nullable_Processes, b <- Bool
+}
+
+-- TODO: HAVE UPDATED READ TO TAKE PID - REQUIRED FOR SCHEDULE
+READ(pid, chan) = 
+    writer.chan.load?w ->        -- (1) get the 'writer' field.
+    if (w == NULL) then STOP
+    else
+        SCHEDULE(pid, w);
+        (
+            writer.chan.store!NULL ->       -- moved (2) writer = null;
+            reader.chan.store!NULL ->       -- moved (3) reader = null;
+            SKIP
+        )
+
+alphaREAD(pid, chan) =
+{
+    writer.chan.load.np,
+    writer.chan.store.NULL, 
+    reader.chan.store.NULL, 
+    ready.p.store.true,
+    ready.p.load.b,
+    running.p.load.b,
+    claim_process.p.pid,
+    release_process.p.pid,
+    schedule.p
+    | np <- Nullable_Processes, p <- Processes, b <- Bool
+}
+
+-- END OF PROCESSJ METHODS

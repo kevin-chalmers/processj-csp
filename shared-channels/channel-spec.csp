@@ -1,0 +1,60 @@
+channel read, write: Channels.Processes.Values
+channel start_read, ack: Channels.Processes
+channel transmit: Channels.Values
+
+LEFT :: (Nullable_Processes, Channels) -> Proc
+LEFT(pid, chan) = 
+    write.chan.pid?mess -> 
+    transmit.chan!mess -> 
+    ack.chan!pid -> 
+    LEFT(pid, chan)
+
+RIGHT :: (Nullable_Processes, Channels) -> Proc
+RIGHT(pid, chan) = 
+    start_read.chan.pid -> 
+    transmit.chan?mess -> 
+    read.chan.pid!mess -> 
+    RIGHT(pid, chan)
+
+alphaLEFT(pid, chan) =
+{
+    write.chan.pid.v, 
+    transmit.chan.v, 
+    ack.chan.pid
+    | v <- Values
+}
+
+alphaRIGHT(pid, chan) =
+{
+    start_read.chan.pid, 
+    transmit.chan.v, 
+    read.chan.pid.v
+    | v <- Values
+}
+
+PRIVATE_CHANNEL_SPEC :: (Channels) -> {Event}
+PRIVATE_CHANNEL_SPEC(chan) =
+{
+    transmit.chan.v
+    | v <- Values
+}
+
+GENERIC_CHANNEL(writing_proc, reading_proc, chan) = dbisim(
+(
+    LEFT(writing_proc, chan) 
+    [alphaLEFT(writing_proc, chan) || alphaRIGHT(reading_proc, chan)] 
+    RIGHT(reading_proc, chan)
+) \ PRIVATE_CHANNEL_SPEC(chan))
+
+alphaGENERIC_CHANNEL(writing_proc, reading_proc, chan) = 
+    diff(union(alphaLEFT(writing_proc, chan), alphaRIGHT(reading_proc, chan)), PRIVATE_CHANNEL_SPEC(chan))
+
+N_TO_M_GENERIC_CHANNEL :: (<Nullable_Processes>, <Nullable_Processes>, Channels) -> Proc
+N_TO_M_GENERIC_CHANNEL(writing_procs, reading_procs, chan) = dbisim(
+(
+    dbisim(||| p : set(writing_procs) @ LEFT(p, chan))
+    [|{|transmit|}|]
+    dbisim(||| p : set(reading_procs) @ RIGHT(p, chan))
+) \ PRIVATE_CHANNEL_SPEC(chan))
+
+-- END OF MODEL SPECIFICATION

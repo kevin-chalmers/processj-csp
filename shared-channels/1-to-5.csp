@@ -1,0 +1,77 @@
+include "restricted-shared-channel.csp"
+
+datatype Nullable_Processes = NULL | R1 | R2 | R3 | R4 | R5 | W
+subtype Processes = R1 | R2 | R3 | R4 | R5 | W
+subtype Reading_Processes = R1 | R2 | R3 | R4 | R5
+subtype Writing_Processes = W
+subtype Nullable_Reading_Processes = NULL | R1 | R2 | R3 | R4 | R5
+subtype Nullable_Writing_Processes = NULL | W
+
+-- One scheduler
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [T= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) :[partial order reduce]
+-- All fail
+assert not N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) [T= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 1) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+
+-- Two schedulers
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [T= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) :[partial order reduce]
+-- All fail
+assert not N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) [T= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 2) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+
+-- Three schedulers
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [T= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) :[partial order reduce]
+-- All fail
+assert not N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) [T= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 3) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+
+-- Four schedulers
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [T= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) :[partial order reduce]
+-- All fail
+assert not N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) [T= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 4) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+
+-- Five schedulers
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [T= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) :[partial order reduce]
+-- All fail
+assert not N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) [T= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 5) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]
+
+-- Six schedulers
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 6) :[deadlock free [FD]] :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 6) :[divergence free[FD]] :[partial order reduce]
+-- Fails
+assert not RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 6) :[deterministic[FD]]
+-- Passes
+assert N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) [F= RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 6) :[partial order reduce]
+assert RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(W, <R1, R2, R3, R4, R5>, C1, 6) [F= N_TO_M_GENERIC_CHANNEL(<W>, <R1, R2, R3, R4, R5>, C1) :[partial order reduce]

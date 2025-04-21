@@ -1,0 +1,273 @@
+-- CSP code for building the model of the ProcessJ implementation of
+-- the shared channels.
+
+transparent sbisim
+transparent wbisim
+transparent dbisim
+transparent normal
+transparent diamond
+
+include "channel.csp"
+include "channel-spec.csp"
+include "scheduler.csp"
+
+-- Set of ProcessJ channels.
+datatype Channels = C1
+
+-- Data values. A and B are distinct different values.
+datatype Values = A | B
+
+channel write_end_enqueue, write_end_dequeue : Channels.Writing_Processes
+channel read_end_enqueue, read_end_dequeue : Channels.Reading_Processes
+channel write_queue_size : Channels.{0..(card(Writing_Processes) - 1)}
+channel read_queue_size : Channels.{0..(card(Reading_Processes) - 1)}
+channel readclaim : Channels.Operations.Nullable_Reading_Processes
+channel writeclaim : Channels.Operations.Nullable_Writing_Processes
+
+-- many-to-one channel: consists of one channel, a writer queue, and a writeclaim variable.
+MANY_TO_ONE_CHANNEL(c) =
+        CHANNEL(c)
+    ||| QUEUE(write_end_enqueue.c, write_end_dequeue.c, write_queue_size.c, <>, card(Writing_Processes) - 1)
+    ||| VARIABLE(writeclaim.c, NULL)
+
+-- one-to-many channel: consists of one channel, a reader queue, and a readclaim variable.
+ONE_TO_MANY_CHANNEL(c) =
+        CHANNEL(c)
+    ||| QUEUE(read_end_enqueue.c, read_end_dequeue.c, read_queue_size.c, <>, card(Reading_Processes) - 1)
+    ||| VARIABLE(readclaim.c, NULL)
+
+-- many-to-many channel: consists of one channel, a reader queue, a writer queue, a writerclaim variable,
+-- and a reader claim variable.
+MANY_TO_MANY_CHANNEL(c) = 
+        CHANNEL(c)
+    ||| QUEUE(write_end_enqueue.c, write_end_dequeue.c, write_queue_size.c, <>, card(Writing_Processes) - 1)
+    ||| QUEUE(read_end_enqueue.c, read_end_dequeue.c, read_queue_size.c, <>, card(Reading_Processes) - 1)
+    ||| VARIABLE(writeclaim.c, NULL)
+    ||| VARIABLE(readclaim.c, NULL)
+
+alphaCHANNELS = Union({
+    Union({alphaCHANNEL(c) | c <- Channels}),
+    Union({alphaQUEUE(write_end_enqueue.c, write_end_dequeue.c, write_queue_size.c, card(Writing_Processes) - 1, Writing_Processes) | c <- Channels}),
+    Union({alphaQUEUE(read_end_enqueue.c, read_end_dequeue.c, read_queue_size.c, card(Reading_Processes) - 1, Reading_Processes) | c <- Channels}),
+    Union({alphaVARIABLE(writeclaim.c, Nullable_Writing_Processes) | c <- Channels}),
+    Union({alphaVARIABLE(readclaim.c, Nullable_Reading_Processes) | c <- Channels})
+})
+
+
+-- code for claiming the writing end of a shared channel
+CLAIM_WRITE(pid, chan) =
+    channel_claim.chan!pid ->           -- claim the channel
+    writeclaim.chan.load?wc ->          -- load the writeclaim variable
+    if (wc == NULL or wc == pid) then   -- if not claimed or claimed by us
+        writeclaim.chan.store!pid ->    --   store our pid into writeclaim
+        channel_release.chan.pid ->     --   release the channel
+        SKIP
+    else                                -- else
+        ready.pid.store!false ->        --   set ourselves not ready
+        write_end_enqueue.chan.pid ->   --   enqueue ourselves on the writer queue
+        channel_release.chan.pid ->     --   release the channel
+        YIELD(pid)                      --   yield()
+
+-- code for unclaiming the writing end of a shared channel
+UNCLAIM_WRITE(pid, chan) =  
+    channel_claim.chan!pid ->           -- claim the channel
+    write_queue_size.chan?s ->          -- get the size of the writer queue
+    if (s == 0) then                    -- if no one is waiting 
+        writeclaim.chan.store!NULL ->   --   set writerclaim to null
+        channel_release.chan.pid ->     --   release the channel
+        SKIP
+    else                                -- else
+        write_end_dequeue.chan?p ->     --   dequeue the next writer
+        writeclaim.chan.store!p ->      --   set the writeclaim 
+        SCHEDULE(pid, p);               --   schedule the next writer
+        channel_release.chan.pid ->     --   release the channel
+        SKIP
+       
+-- The following two procedures represent the 'application code' of a writer to a non-shared channel end
+RESTRICTED_PROCESS_WRITER(pid, chan) =
+    schedule!pid ->                     -- schedule self
+    run.pid ->                          -- wait for run
+    running.pid.store!true ->           -- running := true
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_WRITER'(pid, chan) =
+    write.chan.pid?message ->           -- take a message from the environment
+    channel_claim.chan!pid ->           -- claim the channel
+    WRITE(pid, chan, message);          -- the actual write
+    channel_release.chan.pid ->         -- release the channel
+    YIELD(pid);                         -- yield
+    ack.chan.pid ->                     -- finish the write
+    RESTRICTED_PROCESS_WRITER'(pid, chan)
+
+-- The following two procedures represent the 'application code' of a writer to	a shared channel end
+RESTRICTED_PROCESS_SHARED_WRITER(pid, chan) =
+    schedule!pid ->                     -- schedule self
+    run.pid ->                          -- wait for run
+    running.pid.store!true ->           -- running := true
+    RESTRICTED_PROCESS_SHARED_WRITER'(pid, chan)
+
+RESTRICTED_PROCESS_SHARED_WRITER'(pid, chan) = 
+    write.chan.pid?message ->           -- take a message from the environment
+    (
+        CLAIM_WRITE(pid, chan);         -- claim the channel-end
+        channel_claim.chan!pid ->       -- claim the entire channel
+        WRITE(pid, chan, message);      -- perform the write
+        channel_release.chan!pid ->     -- release the entire channel
+        YIELD(pid);                     -- yield but retain the claim on the end
+        UNCLAIM_WRITE(pid, chan);       -- releast the channel-end
+        ack.chan.pid ->                 -- finish the write
+        RESTRICTED_PROCESS_SHARED_WRITER'(pid, chan)
+    )
+
+-- code for claiming the reading end of a shared channel
+CLAIM_READ(pid, chan) =
+    channel_claim.chan!pid ->           -- claim the channel
+    readclaim.chan.load?rc ->           -- get the readclaim field
+    if (rc == NULL or rc == pid) then   -- if not claimed or claimed by us
+        readclaim.chan.store!pid ->     --   set the readclaim to us
+        channel_release.chan.pid ->     --   release the channel
+        SKIP     
+    else                                -- else
+        ready.pid.store!false ->        --   set us not ready to run  
+        read_end_enqueue.chan.pid ->    --   enqueue us on the reader queue
+        channel_release.chan.pid ->     --   release the channel
+        YIELD(pid)                      --   yield()
+
+-- code for unclaiming the reading end of a shared channel
+UNCLAIM_READ(pid, chan) = 
+    channel_claim.chan!pid ->           -- claim the channel
+    read_queue_size.chan?s ->           -- get the size of the reader queue
+    if (s == 0) then                    -- if no one is waiting 
+        readclaim.chan.store!NULL ->    --   set readclaim to NULL
+        channel_release.chan.pid ->     --   release the channel
+        SKIP
+    else                                -- else
+        read_end_dequeue.chan?p ->      --   get the next reader
+        readclaim.chan.store!p ->       --   set readclaim to the next reader
+        SCHEDULE(pid, p);               --   schedule the next reader
+        channel_release.chan.pid ->     --   release the channel
+        SKIP
+
+-- The following two procedures represent the 'application code' of a reader to a non-shared channel end
+RESTRICTED_PROCESS_READER(pid, chan) =
+    schedule!pid ->                     -- schedule self
+    run.pid ->                          -- wait for schedule
+    running.pid.store!true ->           -- running := true
+    RESTRICTED_PROCESS_READER'(pid, chan)
+
+RESTRICTED_PROCESS_READER'(pid, chan) =   
+    start_read.chan.pid ->              -- start the read (start of read call)
+    channel_claim.chan!pid ->           -- claim the channel
+    writer.chan.load?p ->               -- load the writer field
+    (
+        if (p == NULL) then             -- if (writer != null)
+            reader.chan.store.pid ->    --   reader = this; [done in isReadyToRead()]
+            ready.pid.store!false ->    --   set not ready to run
+            channel_release.chan.pid -> --   release the channel
+            YIELD(pid)                  --   yield();
+        else                            -- else
+            channel_release.chan.pid -> --   release the channel
+            SKIP
+    );
+    channel_claim.chan!pid ->           -- claim the channel
+    READ(pid, chan);                    -- perform the actual read
+    data.chan.load?message ->           -- get the data field being sent
+    (
+        channel_release.chan.pid ->     -- release the channel
+        YIELD(pid);                     -- yield()
+        read.chan.pid!message ->        -- deliver the message to the environment
+        RESTRICTED_PROCESS_READER'(pid, chan)    
+    )
+
+-- The following two procedures represent the 'application code' of a reader to a shared channel end
+RESTRICTED_PROCESS_SHARED_READER(pid, chan) =
+    schedule!pid ->                     -- schedule self
+    run.pid ->                          -- wait for run
+    running.pid.store!true ->           -- running := true
+    RESTRICTED_PROCESS_SHARED_READER'(pid, chan)
+
+RESTRICTED_PROCESS_SHARED_READER'(pid, chan) = 
+    start_read.chan.pid ->              -- start the read
+    CLAIM_READ(pid, chan);              -- claim the reading end
+    channel_claim.chan!pid ->           -- claim the entire channel
+    writer.chan.load?p ->               -- get the writer field
+    (
+        if (p == NULL) then             -- if no writer is there
+            reader.chan.store.pid ->    -- reader = this; [done in isReadyToRead()]
+            ready.pid.store!false ->    -- set not ready to run
+            channel_release.chan.pid -> -- release the channel
+            YIELD(pid);                 -- yield()
+            SKIP
+        else
+            channel_release.chan.pid -> -- release the channel
+            SKIP
+    );
+    channel_claim.chan!pid ->           -- claim the channel
+    READ(pid, chan);                    -- perform the actual read
+    data.chan.load?message ->           -- get the message
+    (
+        channel_release.chan.pid ->     -- release the channel
+        YIELD(pid);                     -- yield()
+        UNCLAIM_READ(pid, chan);        -- unclaim the reading end
+        read.chan.pid!message ->        -- deliver the message to the environment
+        RESTRICTED_PROCESS_SHARED_READER'(pid, chan)
+    )
+
+-- code for setting up the channel systems with each for the shared channel types
+RESTRICTED_READER_SHARED_WRITER(writing_procs, reading_proc, chan) = (
+(
+    (
+        (||| p : set(writing_procs) @ RESTRICTED_PROCESS_SHARED_WRITER(p, chan))
+        |||
+        RESTRICTED_PROCESS_READER(reading_proc, chan)
+    )
+    [|alphaCHANNELS|]
+    MANY_TO_ONE_CHANNEL(chan)
+) \ alphaCHANNELS)
+
+RESTRICTED_SHARED_READER_WRITER(writing_proc, reading_procs, chan) = (
+(
+    (
+        RESTRICTED_PROCESS_WRITER(writing_proc, chan)
+        |||
+        (||| p : set(reading_procs) @ RESTRICTED_PROCESS_SHARED_READER(p, chan))
+    )
+    [|alphaCHANNELS|]
+    ONE_TO_MANY_CHANNEL(chan)
+) \ alphaCHANNELS)
+
+RESTRICTED_SHARED_READER_SHARED_WRITER(writing_procs, reading_procs, chan) = (
+(
+    (
+        (||| p : set(writing_procs) @ RESTRICTED_PROCESS_SHARED_WRITER(p, chan))
+        |||
+        (||| p : set(reading_procs) @ RESTRICTED_PROCESS_SHARED_READER(p, chan))
+    )
+    [|alphaCHANNELS|]
+    MANY_TO_MANY_CHANNEL(chan)
+) \ alphaCHANNELS)
+
+-- many-to-one, one-to-many, and many-to-many restriced process systems.
+-- These are the processes that are tested against the specifications.
+
+RESTRICTED_PJ_MANY_TO_ONE_CHAN_SYSTEM(writing_procs, reading_proc, chan, N) = (
+(
+    RESTRICTED_READER_SHARED_WRITER(writing_procs, reading_proc, chan)
+    [| alphaN_SCHEDULER_SYSTEM |]
+    N_SCHEDULER_SYSTEM(N)
+) \ alphaN_SCHEDULER_SYSTEM)
+
+RESTRICTED_PJ_ONE_TO_MANY_CHAN_SYSTEM(writing_proc, reading_procs, chan, N) = (
+(
+    RESTRICTED_SHARED_READER_WRITER(writing_proc, reading_procs, chan)
+    [| alphaN_SCHEDULER_SYSTEM |]
+    N_SCHEDULER_SYSTEM(N)
+) \ alphaN_SCHEDULER_SYSTEM)
+
+RESTRICTED_PJ_MANY_TO_MANY_CHAN_SYSTEM(writing_procs, reading_procs, chan, N) = (
+(
+    RESTRICTED_SHARED_READER_SHARED_WRITER(writing_procs, reading_procs, chan)
+    [| alphaN_SCHEDULER_SYSTEM |]
+    N_SCHEDULER_SYSTEM(N)
+) \ alphaN_SCHEDULER_SYSTEM)
+

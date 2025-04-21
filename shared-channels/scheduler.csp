@@ -1,0 +1,163 @@
+-- SCHEDULER SYSTEM IMPLEMENTATION
+include "queue.csp"
+
+-- Channel to access ready variable
+-- Ready is a flag used by a process and a scheduler to determine is the process can
+-- be scheduled.  Each process has a ready flag.
+channel ready : Processes.Operations.Bool
+-- Channel to access running flag
+-- Running is a flag used by a process and other processes to determine if a process is
+-- already running
+channel running : Processes.Operations.Bool
+-- Channels for process monitor
+-- These channels are used to ensure access to process variables are protected
+channel claim_process, release_process : Processes.Processes
+
+-- Alphabet of the ready flags
+alphaREADY = Union({alphaVARIABLE(ready.p, Bool) | p <- Processes})
+-- Alphabet of the running flags
+alphaRUNNING = Union({alphaVARIABLE(running.p, Bool) |p <- Processes})
+
+-- A single process
+PROCESS :: (Nullable_Processes) -> Proc
+PROCESS(p) = 
+    VARIABLE(ready.p, true)
+    ||| VARIABLE(running.p, false)
+    ||| MONITOR(claim_process.p, release_process.p)
+
+-- Alphabet of a single process
+alphaPROCESS :: (Nullable_Processes) -> {Event}
+alphaPROCESS(p) = Union({
+    alphaVARIABLE(ready.p, Bool),
+    alphaVARIABLE(running.p, Bool),
+    alphaMONITOR(claim_process.p, release_process.p)
+})
+
+-- All processes
+PROCESSES = ||| p : Processes @ PROCESS(p)
+
+-- Alphabet of all processes
+alphaPROCESSES = Union({alphaPROCESS(p) | p <- Processes})
+
+-- channel for operations on the queue
+channel rqenqueue, rqdequeue, run, yield : Processes
+channel rqsize : {0..card(Processes)}
+
+-- Scheduler process
+-- It ensures only one process is runnning by accepting the run event for a process,
+-- then not accepting another until the equivalent yield occurs.  It can during 
+-- The process allowed to run is the one retrieved from the queue.
+SCHEDULER =
+    rqdequeue?p ->
+    run.p -> 
+    yield.p ->
+    SCHEDULER
+
+alphaRUNQUEUE = alphaQUEUE(rqenqueue, rqdequeue, rqsize, card(Processes), Processes)
+
+alphaSCHEDULER = 
+{
+    run.p,
+    yield.p
+    | p <- Processes
+}
+
+-- Channel to accept schedule events from other processes
+channel schedule : Processes
+
+-- Scheduler manager
+-- This process is responsible for putting processes back into the run queue on request from
+-- its schedule event.
+SCHEDULE_MANAGER =
+    schedule?pid ->
+    rqenqueue!pid ->
+    SCHEDULE_MANAGER
+
+alphaSCHEDULE_MANAGER = {|schedule|}
+
+alphaSCHEDULING = union(alphaSCHEDULER, alphaSCHEDULE_MANAGER)
+
+-- Scheduler system is the queue and scheduler running together with processes.
+-- We give the scheduler the starting order <0, 1, 2>.  This is reasonable, as the processes
+-- will be added to the queue in order of creation.
+N_SCHEDULER_SYSTEM :: (Int) -> Proc
+N_SCHEDULER_SYSTEM(N) =
+(
+    normal(
+        (QUEUE(rqenqueue, rqdequeue, rqsize, <>, card(Processes))
+        [| alphaRUNQUEUE |] 
+        ((||| n : {1..N} @ SCHEDULER) ||| SCHEDULE_MANAGER)
+    ) \alphaRUNQUEUE)
+    [alphaSCHEDULING || alphaPROCESSES]
+    PROCESSES
+)
+
+-- Alphabet of the scheduler system
+alphaN_SCHEDULER_SYSTEM = 
+{
+    ready.p.o.b,
+    running.p.o.b,
+    claim_process.p.p2,
+    release_process.p.p2,
+    run.p,
+    yield.p,
+    schedule.p
+    | p <- Processes, p2 <- Processes, o <- Operations, b <- Bool
+}
+
+-- DESCHEDULE procedure - this this procedure should be called when
+-- a process is being descheduled.
+DESCHEDULE(pid) =
+    claim_process.pid.pid ->
+    running.pid.store.false ->
+    ready.pid.load?r ->
+    if r then
+        schedule.pid ->
+        release_process.pid.pid ->
+        SKIP
+    else
+        release_process.pid.pid ->
+        SKIP
+
+-- SCHEDULE procedure. This procedure should be called in order to
+-- schedule a procedure.
+SCHEDULE :: (Nullable_Processes, Nullable_Processes) -> Proc
+SCHEDULE(me, pid) =
+    claim_process.pid.me ->
+    ready.pid.load?r ->
+    if r then
+        release_process.pid.me ->
+        SKIP
+    else
+        ready.pid.store!true ->
+        running.pid.load?r2 ->
+        if r2 then
+            release_process.pid.me ->
+            SKIP
+        else
+            schedule.pid ->
+            release_process.pid.me ->
+            SKIP
+
+-- YIELD procedure. The YIELD procedure should be called when a process yields.
+-- DESCHEDULE will be called by YIELD.
+YIELD(pid) = 
+    DESCHEDULE(pid);
+    yield.pid -> 
+    run.pid -> 
+    running.pid.store!true ->
+    SKIP
+
+alphaYIELD :: (Nullable_Processes) -> {Event}
+alphaYIELD(pid) =
+{
+    claim_process.pid.pid,
+    release_process.pid.pid,
+    running.pid.store.b,
+    ready.pid.load.b,
+    schedule.pid,
+    yield.pid,
+    run.pid
+    | b <- Bool
+}
+

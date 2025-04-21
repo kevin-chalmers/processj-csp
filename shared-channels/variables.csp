@@ -1,0 +1,14 @@
+-- Generic variable process
+
+-- Operations on a variable
+datatype Operations = load | store
+
+-- Generic variable process
+VARIABLE :: (Complete a, Set a) => (Operations=>a=>Event, a) -> Proc
+VARIABLE(var, val) =
+    var.load!val -> VARIABLE(var, val)
+    []
+    var.store?val -> VARIABLE(var, val)
+
+alphaVARIABLE :: (Set a) => (Operations=>a=>Event, {a}) -> {Event}
+alphaVARIABLE(var, T) = {var.o.v | o <- Operations, v <- T}

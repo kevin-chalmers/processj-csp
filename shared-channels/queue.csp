@@ -1,0 +1,17 @@
+-- CSP implementation of a simple queue
+QUEUE :: (Complete a, Set a) => (a=>Event, a=>Event, Int=>Event, <a>, Int) -> Proc
+QUEUE(enqueue, dequeue, size, q, CAP) =
+    length(q) < CAP & enqueue?v -> QUEUE(enqueue, dequeue, size, q^<v>, CAP)
+    []
+    length(q) > 0 & dequeue!head(q) -> QUEUE(enqueue, dequeue, size, tail(q), CAP)
+    []
+    size!length(q) -> QUEUE(enqueue, dequeue, size, q, CAP)
+
+alphaQUEUE :: (Complete a, Set a) => (a=>Event, a=>Event, Int=>Event, Int, {a}) -> {Event}
+alphaQUEUE(enqueue, dequeue, size, CAP, T) =
+{
+    enqueue.v,
+    dequeue.v,
+    size.s
+    | v <- T, s <- {0..CAP}
+} 
