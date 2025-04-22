@@ -1,88 +1,31 @@
-transparent normal
-transparent sbisim
-transparent wbisim
-
-include "variables.csp"
-include "queue.csp"
-include "memory.csp"
-include "queue-paper.csp"
-include "queue-java.csp"
-include "queue-spec.csp"
-
--- Instance of the Q
-instance Q = Queue
-queue = Q::queue
-queue_atomic = Q::queue_atomic
-
--- Simpler reference to the head and tail
-getHead = Q::queue.Q::HEAD.load
-setHead = Q::queue.Q::HEAD.store
-casHead = Q::queue_atomic.Q::HEAD
-getTail = Q::queue.Q::TAIL.load
-setTail = Q::queue.Q::TAIL.store
-casTail = Q::queue_atomic.Q::TAIL
+include "init.csp"
 
 -- Maximum length of queue allowed
 MAX_QUEUE_LENGTH = 4
-
--- Instance of the memory
-instance mem = Memory(MAX_QUEUE_LENGTH)
-
--- Exposed node access events
-getNext = mem::next.load
-setNext = mem::next.store
-getValue = mem::value.load
-setValue = mem::value.store
-getNode = mem::atomic_node.load
-setNode = mem::atomic_node.store
-casNode = mem::atomic_node_cas
-
--- Exposed integer access events
-getInt = mem::atomic_int.load
-setInt = mem::atomic_int.store
-casInt = mem::atomic_int_cas
-
--- Exposed node creation event
-newNode = mem::new_node
-
--- Simplified type names
-nullNode = mem::NODE.mem::NULL
-nullANode = mem::ANODE.mem::NULL
-nullInt = mem::INT.mem::NULL
-
-
 
 -- The processes using the queue
 datatype Processes = P1 | P2 | P3 | P4
 
 -- Observed events
 channel dequeue, end_enqueue : Processes
-channel enqueue : Processes.mem::Integers_Not_Null
-channel return : Processes.mem::Integers
-channel simple_enqueue : Processes.mem::Integers_Not_Null
-channel simple_dequeue : Processes.mem::Integers
+channel enqueue : Processes.Integers_Not_Null
+channel return : Processes.Integers
+channel simple_enqueue : Processes.Integers_Not_Null
+channel simple_dequeue : Processes.Integers
 
-MSYSTEM(users) = wbisim(
+MSYSTEM(users) =
 (
-    wbisim(
-        (MQueue::IMPLEMENTATION(users) 
-        [| Q::alphaQUEUE |] 
-        Q::QUEUE_OBJ) \ Q::alphaQUEUE
-    )
-    [| union(Q::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
+    MQueue::IMPLEMENTATION(users) 
+    [| union(mem::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
     mem::MEMORY
-) \ union(mem::alphaMEMORY, Q::alphaQUEUE))
+) \ mem::alphaMEMORY
 
-JSYSTEM(users) = wbisim(
+JSYSTEM(users) =
 (
-    wbisim(
-        (JQueue::IMPLEMENTATION(users) 
-        [| Q::alphaQUEUE |] 
-        Q::QUEUE_OBJ) \ Q::alphaQUEUE
-    )
-    [| union(Q::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
+    JQueue::IMPLEMENTATION(users)
+    [| union(mem::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
     mem::MEMORY
-) \ union(mem::alphaMEMORY, Q::alphaQUEUE))
+) \ mem::alphaMEMORY
 
 -- Safety checks for specifications. deadlock/divergence
 -- Single user
@@ -101,19 +44,22 @@ assert ConcQueue::SPEC({P1, P2}) :[divergence free[FD]]
 assert MSYSTEM({P1}) :[deadlock free[FD]]
 assert MSYSTEM({P1}) :[divergence free[FD]]
 -- Two users
-assert MSYSTEM({P1, P2}) :[deadlock free[FD]] :[partial order reduce]
-assert MSYSTEM({P1, P2}) :[divergence free[FD]] :[partial order reduce]
+assert MSYSTEM({P1, P2}) :[deadlock free[FD]]
+assert MSYSTEM({P1, P2}) :[divergence free[FD]]
 -- Three users
-assert MSYSTEM({P1, P2, P3}) :[deadlock free[FD]] :[partial order reduce]
-assert MSYSTEM({P1, P2, P3}) :[divergence free[FD]] :[partial order reduce]
+assert MSYSTEM({P1, P2, P3}) :[deadlock free[FD]]
+assert MSYSTEM({P1, P2, P3}) :[divergence free[FD]]
 
 -- Safety checks for Java implementation
 -- Single user
-assert JSYSTEM({P1}) :[deadlock free[FD]]
-assert JSYSTEM({P1}) :[divergence free[FD]]
+assert JSYSTEM({P1}) :[deadlock free[FD]] :[partial order reduce]
+assert JSYSTEM({P1}) :[divergence free[FD]] :[partial order reduce]
 -- Two users
 assert JSYSTEM({P1, P2}) :[deadlock free[FD]] :[partial order reduce]
 assert JSYSTEM({P1, P2}) :[divergence free[FD]] :[partial order reduce]
+-- Three users
+assert JSYSTEM({P1, P2, P3}) :[deadlock free[FD]] :[partial order reduce]
+assert JSYSTEM({P1, P2, P3}) :[divergence free[FD]] :[partial order reduce]
 
 -- Is the Java implementation equivalent (externally) to Michael et. al.'s work?
 assert MSYSTEM({P1}) [T= JSYSTEM({P1}) :[partial order reduce]
