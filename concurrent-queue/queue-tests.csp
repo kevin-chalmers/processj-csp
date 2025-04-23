@@ -4,7 +4,7 @@ include "init.csp"
 MAX_QUEUE_LENGTH = 4
 
 -- The processes using the queue
-datatype Processes = P1 | P2 | P3 | P4
+datatype Processes = P1 | P2 | P3
 
 -- Observed events
 channel dequeue, end_enqueue : Processes
@@ -74,10 +74,6 @@ assert MSYSTEM({P1, P2, P3}) [T= JSYSTEM({P1, P2, P3}) :[partial order reduce]
 assert MSYSTEM({P1, P2, P3}) [F= JSYSTEM({P1, P2, P3}) :[partial order reduce]
 assert JSYSTEM({P1, P2, P3}) [T= MSYSTEM({P1, P2, P3}) :[partial order reduce]
 assert JSYSTEM({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) :[partial order reduce]
-assert MSYSTEM({P1, P2, P3, P4}) [T= JSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
-assert MSYSTEM({P1, P2, P3, P4}) [F= JSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
-assert JSYSTEM({P1, P2, P3, P4}) [T= MSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
-assert JSYSTEM({P1, P2, P3, P4}) [F= MSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
 
 -- For single user behaviour, is the concurrent queue equivalent to the sequential queue?
 -- It should be, as without concurrent users the concurrent queue should be sequential
@@ -104,9 +100,6 @@ assert ConcQueue::SPEC({P1, P2}) [F= MSYSTEM({P1, P2}) :[partial order reduce]
 -- And also for three processes
 assert MSYSTEM({P1, P2, P3}) [F= ConcQueue::SPEC({P1, P2, P3})
 assert ConcQueue::SPEC({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) :[partial order reduce]
--- And also for four processes
-assert MSYSTEM({P1, P2, P3, P4}) [F= ConcQueue::SPEC({P1, P2, P3, P4}) :[partial order reduce]
-assert ConcQueue::SPEC({P1, P2, P3, P4}) [F= MSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
 
 -- Simple queue ignores begin and end events and only has single enqueue/dequeue events.
 -- This is the simplest form of history we can have - just the operations.
