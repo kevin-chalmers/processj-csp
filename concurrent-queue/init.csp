@@ -1,5 +1,6 @@
 -- This file is used to initialise the components of the 
 -- system and create aliases
+transparent diamond
 transparent normal
 transparent sbisim
 transparent wbisim

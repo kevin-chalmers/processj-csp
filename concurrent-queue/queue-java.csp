@@ -123,11 +123,11 @@ module JQueue
         (
             getTail?tmp : Nodes_Not_Null ->
             if (tmp != tl) then
-                ENQUEUE'(node, tl, tmp)
+                ENQUEUE'(node, tmp, tmp)
             else
             (
                 getHead?pointer : Nodes_Not_Null ->
-                ENQUEUE'(node, tl, pointer)
+                ENQUEUE'(node, tmp, pointer)
             )
         )
         else
@@ -136,9 +136,9 @@ module JQueue
             (
                 getTail?tmp : Nodes_Not_Null ->
                 if (tmp != tl) then
-                    ENQUEUE'(node, tl, tmp)
+                    ENQUEUE'(node, tmp, tmp)
                 else
-                    ENQUEUE'(node, tl, next)
+                    ENQUEUE'(node, tmp, next)
             )
             else
                 ENQUEUE'(node, tl, next)

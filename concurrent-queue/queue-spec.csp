@@ -110,14 +110,14 @@ exports
     channel lin_enqueue : Processes.Integers_Not_Null
     channel lin_dequeue : Processes.Integers
 
-    SPEC(users) = normal((
+    SPEC(users) = (
         (
             (||| id : users @ USER(id, MAX_QUEUE_LENGTH / card(users)))
         )
         [| {| enqueue, lin_enqueue, end_enqueue, dequeue, lin_dequeue, return |} |]
-        QUEUE_SPEC(<>)) \ {| lin_enqueue, lin_dequeue |} )
+        QUEUE_SPEC(<>)) \ {| lin_enqueue, lin_dequeue |}
 
-    SPEC'(users) = normal((
+    SPEC'(users) = ((
         (
             (||| id : users @ USER(id, MAX_QUEUE_LENGTH / card(users)))
         )

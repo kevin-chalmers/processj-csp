@@ -13,19 +13,19 @@ channel return : Processes.Integers
 channel simple_enqueue : Processes.Integers_Not_Null
 channel simple_dequeue : Processes.Integers
 
-MSYSTEM(users) =
+MSYSTEM(users) = diamond(
 (
     MQueue::IMPLEMENTATION(users) 
     [| union(mem::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
     mem::MEMORY
-) \ mem::alphaMEMORY
+) \ mem::alphaMEMORY)
 
-JSYSTEM(users) =
+JSYSTEM(users) = diamond(
 (
     JQueue::IMPLEMENTATION(users)
     [| union(mem::alphaCREATE_QUEUE, mem::alphaMEMORY) |]
     mem::MEMORY
-) \ mem::alphaMEMORY
+) \ mem::alphaMEMORY)
 
 -- Safety checks for specifications. deadlock/divergence
 -- Single user
@@ -52,71 +52,71 @@ assert MSYSTEM({P1, P2, P3}) :[divergence free[FD]]
 
 -- Safety checks for Java implementation
 -- Single user
-assert JSYSTEM({P1}) :[deadlock free[FD]] :[partial order reduce]
-assert JSYSTEM({P1}) :[divergence free[FD]] :[partial order reduce]
+assert JSYSTEM({P1}) :[deadlock free[FD]] --:[partial order reduce]
+assert JSYSTEM({P1}) :[divergence free[FD]] --:[partial order reduce]
 -- Two users
-assert JSYSTEM({P1, P2}) :[deadlock free[FD]] :[partial order reduce]
-assert JSYSTEM({P1, P2}) :[divergence free[FD]] :[partial order reduce]
+assert JSYSTEM({P1, P2}) :[deadlock free[FD]] --:[partial order reduce]
+assert JSYSTEM({P1, P2}) :[divergence free[FD]] --:[partial order reduce]
 -- Three users
-assert JSYSTEM({P1, P2, P3}) :[deadlock free[FD]] :[partial order reduce]
-assert JSYSTEM({P1, P2, P3}) :[divergence free[FD]] :[partial order reduce]
+assert JSYSTEM({P1, P2, P3}) :[deadlock free[FD]] --:[partial order reduce]
+assert JSYSTEM({P1, P2, P3}) :[divergence free[FD]] --:[partial order reduce]
 
 -- Is the Java implementation equivalent (externally) to Michael et. al.'s work?
-assert MSYSTEM({P1}) [T= JSYSTEM({P1}) :[partial order reduce]
-assert MSYSTEM({P1}) [F= JSYSTEM({P1}) :[partial order reduce]
-assert JSYSTEM({P1}) [T= MSYSTEM({P1}) :[partial order reduce]
-assert JSYSTEM({P1}) [F= MSYSTEM({P1}) :[partial order reduce]
-assert MSYSTEM({P1, P2}) [T= JSYSTEM({P1, P2}) :[partial order reduce]
-assert MSYSTEM({P1, P2}) [F= JSYSTEM({P1, P2}) :[partial order reduce]
-assert JSYSTEM({P1, P2}) [T= MSYSTEM({P1, P2}) :[partial order reduce]
-assert JSYSTEM({P1, P2}) [F= MSYSTEM({P1, P2}) :[partial order reduce]
-assert MSYSTEM({P1, P2, P3}) [T= JSYSTEM({P1, P2, P3}) :[partial order reduce]
-assert MSYSTEM({P1, P2, P3}) [F= JSYSTEM({P1, P2, P3}) :[partial order reduce]
-assert JSYSTEM({P1, P2, P3}) [T= MSYSTEM({P1, P2, P3}) :[partial order reduce]
-assert JSYSTEM({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) :[partial order reduce]
+assert MSYSTEM({P1}) [T= JSYSTEM({P1}) --:[partial order reduce]
+assert MSYSTEM({P1}) [F= JSYSTEM({P1}) --:[partial order reduce]
+assert JSYSTEM({P1}) [T= MSYSTEM({P1}) --:[partial order reduce]
+assert JSYSTEM({P1}) [F= MSYSTEM({P1}) --:[partial order reduce]
+assert MSYSTEM({P1, P2}) [T= JSYSTEM({P1, P2}) --:[partial order reduce]
+assert MSYSTEM({P1, P2}) [F= JSYSTEM({P1, P2}) --:[partial order reduce]
+assert JSYSTEM({P1, P2}) [T= MSYSTEM({P1, P2}) --:[partial order reduce]
+assert JSYSTEM({P1, P2}) [F= MSYSTEM({P1, P2}) --:[partial order reduce]
+assert MSYSTEM({P1, P2, P3}) [T= JSYSTEM({P1, P2, P3}) --:[partial order reduce]
+assert MSYSTEM({P1, P2, P3}) [F= JSYSTEM({P1, P2, P3}) --:[partial order reduce]
+assert JSYSTEM({P1, P2, P3}) [T= MSYSTEM({P1, P2, P3}) --:[partial order reduce]
+assert JSYSTEM({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) --:[partial order reduce]
 
 -- For single user behaviour, is the concurrent queue equivalent to the sequential queue?
 -- It should be, as without concurrent users the concurrent queue should be sequential
-assert SeqQueue::SPEC({P1}) [F= ConcQueue::SPEC({P1}) :[partial order reduce]
-assert ConcQueue::SPEC({P1}) [F= SeqQueue::SPEC({P1}) :[partial order reduce]
+assert SeqQueue::SPEC({P1}) [F= ConcQueue::SPEC({P1}) --:[partial order reduce]
+assert ConcQueue::SPEC({P1}) [F= SeqQueue::SPEC({P1}) --:[partial order reduce]
 -- But for two processes, only traces in one direction
-assert not SeqQueue::SPEC({P1, P2}) [T= ConcQueue::SPEC({P1, P2}) :[partial order reduce]
-assert ConcQueue::SPEC({P1, P2}) [T= SeqQueue::SPEC({P1, P2}) :[partial order reduce]
+assert not SeqQueue::SPEC({P1, P2}) [T= ConcQueue::SPEC({P1, P2}) --:[partial order reduce]
+assert ConcQueue::SPEC({P1, P2}) [T= SeqQueue::SPEC({P1, P2}) --:[partial order reduce]
 
 -- For a single user, MSYSTEM (Michael et. al.'s original paper) should also be like the
 -- sequential queue
-assert MSYSTEM({P1}) [F= SeqQueue::SPEC({P1}) :[partial order reduce]
-assert SeqQueue::SPEC({P1}) [F= MSYSTEM({P1}) :[partial order reduce]
+assert MSYSTEM({P1}) [F= SeqQueue::SPEC({P1}) --:[partial order reduce]
+assert SeqQueue::SPEC({P1}) [F= MSYSTEM({P1}) --:[partial order reduce]
 -- But for two (or more) processes, only traces in one direction
-assert not SeqQueue::SPEC({P1, P2}) [T= MSYSTEM({P1, P2}) :[partial order reduce]
-assert MSYSTEM({P1, P2}) [T= SeqQueue::SPEC({P1, P2}) :[partial order reduce]
+assert not SeqQueue::SPEC({P1, P2}) [T= MSYSTEM({P1, P2}) --:[partial order reduce]
+assert MSYSTEM({P1, P2}) [T= SeqQueue::SPEC({P1, P2}) --:[partial order reduce]
 
 -- However, MSYSTEM is equivalent to concurrent queue in both directions
 assert MSYSTEM({P1}) [F= ConcQueue::SPEC({P1})
-assert ConcQueue::SPEC({P1}) [F= MSYSTEM({P1}) :[partial order reduce]
+assert ConcQueue::SPEC({P1}) [F= MSYSTEM({P1}) --:[partial order reduce]
 -- And also for two processes
 assert MSYSTEM({P1, P2}) [F= ConcQueue::SPEC({P1, P2})
-assert ConcQueue::SPEC({P1, P2}) [F= MSYSTEM({P1, P2}) :[partial order reduce]
+assert ConcQueue::SPEC({P1, P2}) [F= MSYSTEM({P1, P2}) --:[partial order reduce]
 -- And also for three processes
 assert MSYSTEM({P1, P2, P3}) [F= ConcQueue::SPEC({P1, P2, P3})
-assert ConcQueue::SPEC({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) :[partial order reduce]
+assert ConcQueue::SPEC({P1, P2, P3}) [F= MSYSTEM({P1, P2, P3}) --:[partial order reduce]
 
-assert ConcQueue::SPEC({P1, P2, P3, P4}) [F= MSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
-assert ConcQueue::SPEC({P1, P2, P3, P4}) [F= JSYSTEM({P1, P2, P3, P4}) :[partial order reduce]
+assert ConcQueue::SPEC({P1, P2, P3, P4}) [F= MSYSTEM({P1, P2, P3, P4}) --:[partial order reduce]
+assert ConcQueue::SPEC({P1, P2, P3, P4}) [F= JSYSTEM({P1, P2, P3, P4}) --:[partial order reduce]
 
 -- Simple queue ignores begin and end events and only has single enqueue/dequeue events.
 -- This is the simplest form of history we can have - just the operations.
 -- ConcQueue::SPEC' hides the begin/end events and renames lin_* events to just single
 -- enqueue/dequeue events. This means, we check that any behaviour of the concurrent
 -- queue (ignoring begin/end) is reorderable??? Is this a linearizability test????
-assert ConcQueue::SPEC'({P1}) [F= SimpleQueue::SPEC({P1}) :[partial order reduce]
-assert SimpleQueue::SPEC({P1}) [T= ConcQueue::SPEC'({P1}) :[partial order reduce]
-assert ConcQueue::SPEC'({P1, P2}) [F= SimpleQueue::SPEC({P1, P2}) :[partial order reduce]
-assert SimpleQueue::SPEC({P1, P2}) [T= ConcQueue::SPEC'({P1, P2}) :[partial order reduce]
-assert ConcQueue::SPEC'({P1, P2, P3}) [F= SimpleQueue::SPEC({P1, P2, P3}) :[partial order reduce]
-assert SimpleQueue::SPEC({P1, P2, P3}) [T= ConcQueue::SPEC'({P1, P2, P3}) :[partial order reduce]
-assert ConcQueue::SPEC'({P1, P2, P3, P4}) [F= SimpleQueue::SPEC({P1, P2, P3, P4}) :[partial order reduce]
-assert SimpleQueue::SPEC({P1, P2, P3, P4}) [T= ConcQueue::SPEC'({P1, P2, P3, P4}) :[partial order reduce]
+assert ConcQueue::SPEC'({P1}) [F= SimpleQueue::SPEC({P1}) --:[partial order reduce]
+assert SimpleQueue::SPEC({P1}) [T= ConcQueue::SPEC'({P1}) --:[partial order reduce]
+assert ConcQueue::SPEC'({P1, P2}) [F= SimpleQueue::SPEC({P1, P2}) --:[partial order reduce]
+assert SimpleQueue::SPEC({P1, P2}) [T= ConcQueue::SPEC'({P1, P2}) --:[partial order reduce]
+assert ConcQueue::SPEC'({P1, P2, P3}) [F= SimpleQueue::SPEC({P1, P2, P3}) --:[partial order reduce]
+assert SimpleQueue::SPEC({P1, P2, P3}) [T= ConcQueue::SPEC'({P1, P2, P3}) --:[partial order reduce]
+assert ConcQueue::SPEC'({P1, P2, P3, P4}) [F= SimpleQueue::SPEC({P1, P2, P3, P4}) --:[partial order reduce]
+assert SimpleQueue::SPEC({P1, P2, P3, P4}) [T= ConcQueue::SPEC'({P1, P2, P3, P4}) --:[partial order reduce]
 
 --assert SimpleQueue::SPEC({P1, P2, P3, P4}) [F= ConcQueue::SPEC'({P1, P2, P3, P4}) -- this one fails 
 --assert SimpleQueue::SPEC({P1, P2, P3, P4}) [T= ConcQueue::SPEC'({P1, P2, P3, P4}) 
