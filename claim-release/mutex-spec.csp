@@ -1,0 +1,68 @@
+module Mutex(users)
+    channel lin_claim : users
+    channel lin_release : users
+
+    USER(pid) =
+        begin_claim.pid ->
+        lin_claim.pid ->
+        end_claim.pid ->
+        begin_release.pid ->
+        lin_release.pid ->
+        end_release.pid ->
+        USER(pid)
+
+    MUTEX_SPEC(user) =
+    (
+        begin_claim?_ ->
+        MUTEX_SPEC(user)
+    )
+    []
+    (
+        user == NULL &
+        lin_claim?proc ->
+        MUTEX_SPEC(proc)
+    )
+    []
+    (
+        user != NULL &
+        end_claim.user ->
+        MUTEX_SPEC(user)
+    )
+    []
+    (
+        user != NULL &
+        begin_release.user ->
+        MUTEX_SPEC(user)
+    )
+    []
+    (
+        user != NULL &
+        lin_release.user ->
+        MUTEX_SPEC(NULL)
+    )
+    []
+    (
+        end_release?_ ->
+        MUTEX_SPEC(user)
+    )
+
+    alphaSPEC =
+    {|
+        begin_claim,
+        end_claim,
+        begin_release,
+        end_release,
+        lin_claim,
+        lin_release
+    |}
+
+exports
+
+    SPEC =
+    (
+        (||| u : users @ USER(u))
+        [| alphaSPEC |]
+        MUTEX_SPEC(NULL)
+    ) \ {| lin_claim, lin_release |}
+
+endmodule

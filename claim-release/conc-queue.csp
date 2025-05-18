@@ -1,0 +1,117 @@
+module ConcQueue(max)
+
+    channel lin_enqueue : NonNullPID.NonNullPID
+    channel lin_dequeue : NonNullPID.PID
+    channel lin_peek : NonNullPID.PID
+
+    USER(id) =
+    (
+        enqueue.id?val ->
+        lin_enqueue.id.val ->
+        end_enqueue.id ->
+        USER(id)
+    )
+    []
+    (
+        dequeue.id ->
+        lin_dequeue.id?val ->
+        return.id.val ->
+        USER(id)
+    )
+    []
+    (
+        peek.id ->
+        lin_peek.id?val ->
+        return.id.val ->
+        USER(id)
+    )
+
+    QUEUE_SPEC(q) =
+    length(q) <= max &
+    (
+        (
+            enqueue?_?_ ->
+            QUEUE_SPEC(q)
+        )
+        []
+        (
+            length(q) <= max &
+            lin_enqueue?proc?v ->
+            QUEUE_SPEC(q^<v>)
+        )
+        []
+        (
+            end_enqueue?_ ->
+            QUEUE_SPEC(q)
+        )
+        []
+        (
+            dequeue?_ ->
+            QUEUE_SPEC(q)
+        )
+        []
+        (
+            if (length(q) == 0) then
+                lin_dequeue?proc!NULL ->
+                QUEUE_SPEC(q)
+            else
+                lin_dequeue?proc!head(q) ->
+                QUEUE_SPEC(tail(q))
+        )
+        []
+        (
+            peek?_ ->
+            QUEUE_SPEC(q)
+        )
+        []
+        (
+            if (length(q) == 0) then
+                lin_peek?proc!NULL ->
+                QUEUE_SPEC(q)
+            else
+                lin_peek?proc!head(q) ->
+                QUEUE_SPEC(q)
+        )
+        []
+        (
+            return?_?_ ->
+            QUEUE_SPEC(q)
+        )
+    )
+
+    SYNC = 
+    {|
+        enqueue,
+        dequeue,
+        peek,
+        end_enqueue,
+        return,
+        lin_enqueue,
+        lin_dequeue,
+        lin_peek
+    |}
+
+    HIDE =
+    {|
+        lin_enqueue,
+        lin_dequeue,
+        lin_peek
+    |}
+
+exports
+
+    QUEUE(users) = (
+        (||| id : users @ USER(id))
+        [| SYNC |]
+        QUEUE_SPEC(<>)) \ HIDE
+
+    alpha =
+    {|
+        enqueue,
+        dequeue,
+        peek,
+        end_enqueue,
+        return
+    |}
+
+endmodule

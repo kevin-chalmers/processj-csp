@@ -1,0 +1,240 @@
+include "variables.csp"
+include "conc-queue.csp"
+include "mutex-spec.csp"
+
+-- Processes used by the system
+datatype PID = NULL | P1 | P2 | P3 | P4
+subtype NonNullPID = P1 | P2 | P3 | P4
+
+-- Users being applied in the model for assertion checking.
+users = {P1, P2, P3, P4}
+
+-- Channels to interact with the queue
+channel enqueue : NonNullPID.NonNullPID
+channel end_enqueue : NonNullPID
+channel dequeue : NonNullPID
+channel return : NonNullPID.PID
+channel peek : NonNullPID
+
+-- Instance of the concurrent queue
+instance Q = ConcQueue(card(users))
+
+-- Lightweight scheduling system
+-- No restrictions - everything can run if ready.
+
+-- Channel to access ready flags
+channel ready : Operations.NonNullPID.Bool
+
+-- Helper aliases for reading
+getReady = ready.load
+setReady = ready.store
+
+-- Ready flags for the processes
+READY_FLAGS = 
+    ||| p : NonNullPID @ VARIABLE(ready.load.p, ready.store.p, true)
+
+-- YIELD just waits until ready. As only ready processes are runnable
+-- this is a sufficient model. True scheduling is more restrictive.
+YIELD(pid) = getReady.pid.true -> SKIP
+
+-- SCHEDULE sets the ready flag of a process true. As only ready processes
+-- are runnable, this is a sufficient model.
+SCHEDULE(pid) = setReady.pid!true -> SKIP
+
+-- Channels to access the atomic variable owner.
+-- This could be an atomic reference in Java (i.e., object is stored in the
+-- shared mutex), or could be an ID for lookup. The algorithm does not
+-- distinguish and uses the owner ID to lookup a ready flag index.
+channel owner : Operations.PID
+channel owner_cas : PID.PID.Bool
+
+-- Helper aliases to use the owner channels
+getOwner = owner.load
+setOwner = owner.store
+casOwner = owner_cas
+
+-- Process representing the atomic variable of the owner
+OWNER = ATOMIC_VARIABLE(owner.load, owner.store, casOwner, NULL)
+
+-- Channels used to interact with the shared object
+channel begin_claim : NonNullPID
+channel end_claim : NonNullPID
+channel begin_release : NonNullPID
+channel end_release : NonNullPID
+
+-- Claim process
+CLAIM(pid) =
+    begin_claim.pid ->
+    -- Set ourselves not ready
+    setReady.pid.false ->
+    -- Enqueue ourselves
+    enqueue.pid.pid ->
+    end_enqueue.pid ->
+    -- Check who is head of the queue
+    peek.pid ->
+    return.pid?headQ ->
+    if headQ == pid then
+        -- We know we are head of the queue. But is another
+        -- process releasing?
+        -- Let's see if owner is NULL
+        casOwner!NULL!pid?succ ->
+        if succ then
+            -- Owner is NULL. Release does this last, so
+            -- nothing in our way. Set ourselves ready
+            SCHEDULE(pid);
+            end_claim.pid ->
+            SKIP
+        else
+            -- OK, at the cas point RELEASE was in only a few
+            -- places. We know it has dequeued at least.
+            -- We can check the owner. But might have changed.
+            getOwner?own ->
+            if own == pid then
+                -- So we are now the owner. We should be
+                -- able to wait for ready to be true now.
+                YIELD(pid);
+                end_claim.pid ->
+                SKIP
+            else if own != NULL then
+                -- We are not the owner. That must mean
+                -- that RELEASE is happening. Did it see us?
+                -- If we jump in, then we can set ourselves as the owner.
+                casOwner!own!pid?succ ->
+                if succ then
+                    -- At this point, we have changed the 
+                    -- owner to us from the previous owner.
+                    -- The current owner will eventually
+                    -- see this. Set ourselves ready and
+                    -- continue
+                    SCHEDULE(pid);
+                    end_claim.pid ->
+                    SKIP
+                else
+                    -- The owner has moved forwarded. It has
+                    -- either set the owner to NULL or to us.
+                    -- If it set the owner to null. We can check
+                    -- this.
+                    casOwner!NULL!pid?succ ->
+                    if succ then
+                        -- We now know that the owner was NULL
+                        -- We can set ourselves ready safely.
+                        SCHEDULE(pid);
+                        end_claim.pid ->
+                        SKIP
+                    else
+                        -- Well at this point it must be us.
+                        -- Release should set us ready.
+                        YIELD(pid);
+                        end_claim.pid ->
+                        SKIP
+            else
+                -- Owner must be NULL now. We can set it to us.
+                (setOwner!pid -> SCHEDULE(pid));
+                (end_claim.pid -> SKIP)
+    else
+        -- OK, we are not the head of the queue. Something
+        -- will wake us up.
+        YIELD(pid);
+        end_claim.pid ->
+        SKIP
+
+-- Release process
+RELEASE(pid) =
+    begin_release.pid ->
+    -- Remove ourselves from the queue
+    dequeue.pid ->
+    -- This will block if we are not at the head
+    return.pid.pid ->
+    -- We now check if someone else is in the queue
+    peek.pid ->
+    return.pid?headQ ->
+    if headQ == NULL then
+        -- Nothing in the queue
+        -- Try to set owner to NULL
+        casOwner!pid!NULL?succ ->
+        -- Doesn't matter if we succeeded. Either we did, and another process
+        -- can claim, or we didn't and another process has stolen.
+        end_release.pid ->
+        SKIP
+    else
+        -- Something is at the front of the queue.
+        -- It has maybe been there for a while. Set the new
+        -- owner.
+        -- Try and set the new owner
+        casOwner!pid!headQ?succ ->
+        if succ then
+            -- We successfully set it as the new owner.
+            -- We must set it ready
+            SCHEDULE(headQ);
+            -- And we can end.
+            end_release.pid ->
+            SKIP
+        else
+            -- It must have set itself as the owner. We can 
+            -- just end.
+            end_release.pid ->
+            SKIP
+
+-- A user of the shared object. Will claim, release, and recurse.
+USER(pid) =
+    CLAIM(pid);
+    RELEASE(pid);
+    USER(pid)
+
+-- Users will use all the variables.
+alphaVAR =
+{|
+    getReady,
+    setReady,
+    getOwner,
+    setOwner,
+    casOwner
+|}
+
+-- System plugs the queue, ready flags, and owner variables into the set of user
+-- processes. Variables interleave and users interleave. Synchronisation is
+-- between the variables and users.
+-- We also hide the variables for verification checking.
+SYSTEM =
+(
+    (Q::QUEUE(users) ||| READY_FLAGS ||| OWNER)
+    [| union(Q::alpha, alphaVAR) |]
+    (||| u : users @ USER(u))
+) \ union(Q::alpha, alphaVAR)
+
+-- Can now perform basic checks
+-- Is the shared object deadlock free? This ensures it does not get into a 
+-- condition where waiting processes are not correctly notified.
+assert SYSTEM :[deadlock free[FD]]
+
+-- Is the shared object divergence free? This ensures there is no spinning 
+-- (i.e., spin lock) happening.
+assert SYSTEM :[divergence free]
+
+-- Is the system deterministic? It isn't. But neither is the spec.
+-- This is due to not knowing the outcome of the internal race
+-- to claim and claim-release. The steady state reached depends on 
+-- internal interleaving.
+assert not SYSTEM :[deterministic[FD]]
+
+-- Create an instance of the specification (a mutex)
+instance MUTEX = Mutex(users)
+SPEC = MUTEX::SPEC
+
+-- Ensure spec is also deadlock and divergence free
+assert SPEC :[deadlock free[FD]]
+assert SPEC :[divergence free]
+
+-- Also check determinism. See comment on SYSTEM determinism.
+assert not SPEC :[deterministic [FD]]
+
+-- As the system is divergence free, we only need to check in failures.
+-- Check if the system only behaves as allowed by the specification.
+assert SPEC [F= SYSTEM
+
+-- Does the specification only behave as the implementation? If it does,
+-- the external behaviour of the SPEC and SYSTEM are identical
+assert SYSTEM [F= SPEC
+
+-- As SPEC [F= SYSTEM and SYSTEM [F= SPEC, we have equivalent behaviour.
+-- The CLAIM-RELEASE protocol works exactly like a shared mutex.
