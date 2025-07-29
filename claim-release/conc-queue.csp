@@ -1,6 +1,5 @@
 module ConcQueue(max)
 
-    channel lin_enqueue : NonNullPID.NonNullPID
     channel lin_dequeue : NonNullPID.PID
     channel lin_peek : NonNullPID.PID
 
@@ -35,7 +34,6 @@ module ConcQueue(max)
         )
         []
         (
-            length(q) <= max &
             lin_enqueue?proc?v ->
             QUEUE_SPEC(q^<v>)
         )
@@ -100,10 +98,19 @@ module ConcQueue(max)
 
 exports
 
+    channel lin_enqueue : NonNullPID.NonNullPID
+
     QUEUE(users) = (
         (||| id : users @ USER(id))
         [| SYNC |]
-        QUEUE_SPEC(<>)) \ HIDE
+        QUEUE_SPEC(<>)
+    ) \ HIDE
+
+    QUEUE_VIS(users) = (
+        (||| id : users @ USER(id))
+        [| SYNC |]
+        QUEUE_SPEC(<>)
+    ) \ {| lin_dequeue, lin_peek |}
 
     alpha =
     {|

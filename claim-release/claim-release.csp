@@ -16,30 +16,41 @@ channel dequeue : NonNullPID
 channel return : NonNullPID.PID
 channel peek : NonNullPID
 
+-- NOT READY and NOT RUNNING - waiting
+-- NOT READY and RUNNING - engaging
+-- READY and NOT RUNNING - scheduled
+-- READY and RUNNING - active
+datatype STATE = WAITING | ENGAGING | SCHEDULED | ACTIVE
+channel state : Operations.NonNullPID.STATE
+channel cas_state : NonNullPID.STATE.STATE.Bool
+
+STATE_VAR =
+    ||| p : NonNullPID @ ATOMIC_VARIABLE(state.load.p, state.store.p, cas_state.p, ACTIVE)
+
+getState = state.load
+setState = state.store
+casState = cas_state
+
 -- Instance of the concurrent queue
 instance Q = ConcQueue(card(users))
 
--- Lightweight scheduling system
--- No restrictions - everything can run if ready.
-
--- Channel to access ready flags
-channel ready : Operations.NonNullPID.Bool
-
--- Helper aliases for reading
-getReady = ready.load
-setReady = ready.store
-
--- Ready flags for the processes
-READY_FLAGS = 
-    ||| p : NonNullPID @ VARIABLE(ready.load.p, ready.store.p, true)
-
--- YIELD just waits until ready. As only ready processes are runnable
+-- YIELD just waits until scheduled. As only scheduled processes are runnable
 -- this is a sufficient model. True scheduling is more restrictive.
-YIELD(pid) = getReady.pid.true -> SKIP
 
--- SCHEDULE sets the ready flag of a process true. As only ready processes
--- are runnable, this is a sufficient model.
-SCHEDULE(pid) = setReady.pid!true -> SKIP
+YIELD(pid) = 
+    getState.pid.SCHEDULED -> 
+    setState.pid.ACTIVE -> 
+    SKIP
+
+-- SCHEDULE sets the state of a process to scheduled. A process may be engaging
+-- (attempting to enter a critical section) or waiting (waiting to enter)
+SCHEDULE(pid) = 
+    casState.pid!ENGAGING!SCHEDULED?succ ->
+    if (not succ) then
+        casState.pid!WAITING!SCHEDULED?succ ->
+        SKIP
+    else
+        SKIP
 
 -- Channels to access the atomic variable owner.
 -- This could be an atomic reference in Java (i.e., object is stored in the
@@ -65,8 +76,8 @@ channel end_release : NonNullPID
 -- Claim process
 CLAIM(pid) =
     begin_claim.pid ->
-    -- Set ourselves not ready
-    setReady.pid.false ->
+    -- Set ourselves engaging
+    setState.pid!ENGAGING ->
     -- Enqueue ourselves
     enqueue.pid.pid ->
     end_enqueue.pid ->
@@ -80,8 +91,8 @@ CLAIM(pid) =
         casOwner!NULL!pid?succ ->
         if succ then
             -- Owner is NULL. Release does this last, so
-            -- nothing in our way. Set ourselves ready
-            SCHEDULE(pid);
+            -- nothing in our way. Set ourselves active
+            setState.pid!ACTIVE ->
             end_claim.pid ->
             SKIP
         else
@@ -89,54 +100,71 @@ CLAIM(pid) =
             -- places. We know it has dequeued at least.
             -- We can check the owner. But might have changed.
             getOwner?own ->
-            if own == pid then
-                -- So we are now the owner. We should be
-                -- able to wait for ready to be true now.
-                YIELD(pid);
-                end_claim.pid ->
+            -- Check if now null
+            if own == NULL then
+                setOwner!pid ->
+                setState.pid!ACTIVE ->
+                end_claim.pid -> 
                 SKIP
-            else if own != NULL then
-                -- We are not the owner. That must mean
-                -- that RELEASE is happening. Did it see us?
-                -- If we jump in, then we can set ourselves as the owner.
-                casOwner!own!pid?succ ->
+            -- Are we the owner?
+            else if own == pid then
+                -- Check if we are scheduled
+                casState.pid!ENGAGING!WAITING?succ ->
                 if succ then
-                    -- At this point, we have changed the 
-                    -- owner to us from the previous owner.
-                    -- The current owner will eventually
-                    -- see this. Set ourselves ready and
-                    -- continue
-                    SCHEDULE(pid);
+                    -- We wait for the schedule signal from release.
+                    YIELD(pid);
                     end_claim.pid ->
                     SKIP
                 else
-                    -- The owner has moved forwarded. It has
-                    -- either set the owner to NULL or to us.
-                    -- If it set the owner to null. We can check
-                    -- this.
+                    -- Scheduled, set active
+                    setState.pid!ACTIVE ->
+                    end_claim.pid ->
+                    SKIP
+            else
+                -- Owner was still there. Attempt steal
+                casOwner!own!pid?succ ->
+                if succ then
+                    -- Stolen. Set active
+                    setState.pid!ACTIVE ->
+                    end_claim.pid ->
+                    SKIP
+                else
+                    -- Owner must have changed. Test null first.
                     casOwner!NULL!pid?succ ->
                     if succ then
                         -- We now know that the owner was NULL
-                        -- We can set ourselves ready safely.
-                        SCHEDULE(pid);
+                        -- We can set ourselves active.
+                        setState.pid!ACTIVE ->
                         end_claim.pid ->
                         SKIP
                     else
-                        -- Well at this point it must be us.
-                        -- Release should set us ready.
-                        YIELD(pid);
-                        end_claim.pid ->
-                        SKIP
-            else
-                -- Owner must be NULL now. We can set it to us.
-                (setOwner!pid -> SCHEDULE(pid));
-                (end_claim.pid -> SKIP)
+                        -- Owner must be us. Are we signalled?
+                        casState.pid!ENGAGING!WAITING?succ ->
+                        if succ then
+                            -- We wait for the schedule signal from release.
+                            YIELD(pid);
+                            end_claim.pid ->
+                            SKIP
+                        else
+                            -- Scheduled, set active
+                            setState.pid!ACTIVE ->
+                            end_claim.pid ->
+                            SKIP           
     else
         -- OK, we are not the head of the queue. Something
         -- will wake us up.
-        YIELD(pid);
-        end_claim.pid ->
-        SKIP
+        -- Attempt to CAS the state to waiting (may have been changed by release)
+        casState.pid!ENGAGING!WAITING?succ ->
+        if (succ) then
+            -- Release didn't change state
+            YIELD(pid);
+            end_claim.pid ->
+            SKIP
+        else
+            -- Release did change state. Can end now.
+            setState.pid!ACTIVE ->
+            end_claim.pid ->
+            SKIP
 
 -- Release process
 RELEASE(pid) =
@@ -175,7 +203,6 @@ RELEASE(pid) =
             end_release.pid ->
             SKIP
 
--- A user of the shared object. Will claim, release, and recurse.
 USER(pid) =
     CLAIM(pid);
     RELEASE(pid);
@@ -184,20 +211,21 @@ USER(pid) =
 -- Users will use all the variables.
 alphaVAR =
 {|
-    getReady,
-    setReady,
+    getState,
+    setState,
+    casState,
     getOwner,
     setOwner,
     casOwner
 |}
 
--- System plugs the queue, ready flags, and owner variables into the set of user
+-- System plugs the queue, state, and owner variables into the set of user
 -- processes. Variables interleave and users interleave. Synchronisation is
 -- between the variables and users.
 -- We also hide the variables for verification checking.
 SYSTEM =
 (
-    (Q::QUEUE(users) ||| READY_FLAGS ||| OWNER)
+    (Q::QUEUE(users) ||| STATE_VAR ||| OWNER)
     [| union(Q::alpha, alphaVAR) |]
     (||| u : users @ USER(u))
 ) \ union(Q::alpha, alphaVAR)
@@ -205,7 +233,7 @@ SYSTEM =
 -- Can now perform basic checks
 -- Is the shared object deadlock free? This ensures it does not get into a 
 -- condition where waiting processes are not correctly notified.
-assert SYSTEM :[deadlock free[FD]]
+assert SYSTEM :[deadlock free[F]]
 
 -- Is the shared object divergence free? This ensures there is no spinning 
 -- (i.e., spin lock) happening.
@@ -222,7 +250,7 @@ instance MUTEX = Mutex(users)
 SPEC = MUTEX::SPEC
 
 -- Ensure spec is also deadlock and divergence free
-assert SPEC :[deadlock free[FD]]
+assert SPEC :[deadlock free[F]]
 assert SPEC :[divergence free]
 
 -- Also check determinism. See comment on SYSTEM determinism.
@@ -238,3 +266,88 @@ assert SYSTEM [F= SPEC
 
 -- As SPEC [F= SYSTEM and SYSTEM [F= SPEC, we have equivalent behaviour.
 -- The CLAIM-RELEASE protocol works exactly like a shared mutex.
+
+-- Linearizability checks
+channel lock : NonNullPID
+channel unlock : NonNullPID
+LIN_MUTEX = lock?pid -> unlock.pid -> LIN_MUTEX
+LIN_SPEC = MUTEX::LIN_SPEC
+
+assert LIN_MUTEX [F= LIN_SPEC
+
+-- Stability checks
+HIDE = {|begin_claim, end_release|}
+TauPriorSPEC = MUTEX::TauPriorSPEC
+
+assert not TauPriorSPEC [T= SYSTEM
+assert TauPriorSPEC \ HIDE [F= SYSTEM \ HIDE
+
+-- Correct state checks
+-- end_claim should only occur when state = ACTIVE
+CHECK_STATE(pid, s) =
+    getState.pid?st ->
+    if st == s then
+        SKIP
+    else
+        DIV
+
+USER_SAFE(pid) =
+    CHECK_STATE(pid, ACTIVE);
+    CLAIM(pid);
+    CHECK_STATE(pid, ACTIVE);
+    RELEASE(pid);
+    USER_SAFE(pid)
+
+-- Safe system should not deadlock
+SYSTEM_SAFE =
+(
+    (Q::QUEUE(users) ||| STATE_VAR ||| OWNER)
+    [| union(Q::alpha, alphaVAR) |]
+    (||| u : users @ USER_SAFE(u))
+) \ union(Q::alpha, alphaVAR)
+
+assert SYSTEM_SAFE :[divergence free]
+
+-- Fairness checks
+-- Model of fair FIFO behaviour of the mutex
+FAIR'(claims, <>) = card(claims) <= card(users) & (
+    (
+        card(claims) < card(users) & begin_claim?pid : diff(users, claims) ->
+        FAIR'(union(claims, {pid}), <>)
+    )
+    []
+    (
+        card(claims) > 0 & [] pid : claims @ Q::lin_enqueue.pid.pid ->
+        FAIR'(claims, <pid>)
+    )
+)
+
+FAIR'(claims, <head>^waiting) = card(claims) <= card(users) and length(<head>^waiting) <= card(users) & (
+    (
+        card(claims) < card(users) & begin_claim?pid : diff(users, claims) ->
+        FAIR'(union(claims, {pid}), <head>^waiting)
+    )
+    []
+    (
+        card(claims) > 0 & [] pid : diff(claims, set(<head>^waiting)) @ Q::lin_enqueue.pid.pid ->
+        FAIR'(claims, <head>^waiting^<pid>)
+    )
+    []
+    (
+        end_claim.head ->
+        FAIR'(diff(claims, {head}), waiting)
+    )
+)
+
+FAIR = FAIR'({}, <>)
+
+-- Implementation of system to check for fairness. Exposes
+-- different events.
+FAIR_IMPL = 
+(
+    (Q::QUEUE_VIS(users) ||| STATE_VAR ||| OWNER)
+    [| union(Q::alpha, alphaVAR) |]
+    (||| u : users @ USER(u))
+) \ Union({Q::alpha, alphaVAR, {|begin_release, end_release|}})
+
+assert FAIR [F= FAIR_IMPL

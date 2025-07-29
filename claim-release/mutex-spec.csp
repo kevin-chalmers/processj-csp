@@ -1,3 +1,5 @@
+external chase
+
 module Mutex(users)
     channel lin_claim : users
     channel lin_release : users
@@ -64,5 +66,15 @@ exports
         [| alphaSPEC |]
         MUTEX_SPEC(NULL)
     ) \ {| lin_claim, lin_release |}
+
+    SPEC' = (
+        (||| u : users @ USER(u))
+        [| alphaSPEC |]
+        MUTEX_SPEC(NULL)
+    ) \ {| begin_claim, end_claim, begin_release, end_release |}
+
+    LIN_SPEC = SPEC'[[lin_claim <- lock, lin_release <- unlock]]
+
+    TauPriorSPEC = chase(SPEC)
 
 endmodule
