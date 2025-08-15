@@ -82,7 +82,7 @@ alphaSCHEDULING = union(alphaSCHEDULER, alphaSCHEDULE_MANAGER)
 N_SCHEDULER_SYSTEM :: (Int) -> Proc
 N_SCHEDULER_SYSTEM(N) = 
 (
-    wbisim ((
+    sbdia((
         QUEUE(rqenqueue, rqdequeue, <>, card(Processes)) 
         [| alphaRUNQUEUE |] 
         ((||| n : {1..N} @ SCHEDULER) ||| SCHEDULE_MANAGER)

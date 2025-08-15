@@ -1,6 +1,8 @@
 transparent sbisim
 transparent wbisim
 transparent dbisim
+transparent diamond
+sbdia(P) = sbisim(diamond(P))
 
 include "alt.csp"
 include "alt-spec.csp"
@@ -20,9 +22,9 @@ subtype Active_Channels = C1 | C2 | C3
 datatype Values = A | B
 
 -- VARIABLES
-CHANNELS = ||| c : Channels @ CHANNEL(c)
+CHANNELS = ||| c : Active_Channels @ CHANNEL(c)
 
-alphaCHANNELS = Union({alphaCHANNEL(c) | c <- Channels})
+alphaCHANNELS = Union({alphaCHANNEL(c) | c <- Active_Channels})
 
 -- PROTECTED WRITING PROCESS
 
@@ -72,14 +74,14 @@ PROCESS_WRITER_NETWORK(<>, <>) = SKIP
 PROCESS_WRITER_NETWORK(<proc>^writing_procs, <chan>^chans) =
     (RESTRICTED_PROCESS_WRITER(proc, chan) ||| PROCESS_WRITER_NETWORK(writing_procs, chans))
 
-RESTRICTED_SELECTOR_WRITERS(writing_procs, selector, chans) = wbisim(
+RESTRICTED_SELECTOR_WRITERS(writing_procs, selector, chans) = sbdia(
 (
     (CHANNELS ||| ALT_VARIABLES)
     [| union(alphaCHANNELS, alphaALT_VARIABLES) |]
     ALT_NETWORK(writing_procs, selector, chans)
 ) \ union(alphaCHANNELS, alphaALT_VARIABLES))
 
-RESTRICTED_PJ_ALT_SYSTEM(writing_procs, selector, chans, N) = wbisim(
+RESTRICTED_PJ_ALT_SYSTEM(writing_procs, selector, chans, N) = sbdia(
 (
     RESTRICTED_SELECTOR_WRITERS(writing_procs, selector, chans)
     [| alphaN_SCHEDULER_SYSTEM |]
@@ -87,15 +89,15 @@ RESTRICTED_PJ_ALT_SYSTEM(writing_procs, selector, chans, N) = wbisim(
 ) \ alphaN_SCHEDULER_SYSTEM)
 
 -- Refinement checks
---assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 1)
---assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 2)
---assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 3)
---assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 4)
+assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 1)
+assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 2)
+assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 3)
+assert ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>) [F= RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 4)
 
---assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 1) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
---assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 2) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
---assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 3) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
---assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 4) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
+assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 1) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
+assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 2) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
+assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 3) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
+assert RESTRICTED_PJ_ALT_SYSTEM(<W1, W2, W3>, R, <C1, C2, C3>, 4) [F= ALT_SPEC_SYSTEM(R, <C1, C2, C3>, <W1, W2, W3>)
 
 
 

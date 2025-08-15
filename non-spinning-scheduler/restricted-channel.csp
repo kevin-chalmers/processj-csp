@@ -86,7 +86,8 @@ RESTRICTED_PJ_CHAN_SYSTEM(writer_proc, reader_proc, chan, n) = wbisim(
 
 assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[deadlock free[FD]]
 assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[divergence free[FD]]
-assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[deterministic[FD]]
+-- Single scheduler not deterministic because depends on hidden internal non-deterministic scheduling
+assert not RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 1) :[deterministic[FD]] 
 assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[deadlock free[FD]]
 assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[divergence free[FD]]
 assert RESTRICTED_PJ_CHAN_SYSTEM(P1, P2, C1, 2) :[deterministic[FD]]

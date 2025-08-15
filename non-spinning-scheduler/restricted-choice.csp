@@ -4,7 +4,7 @@ transparent dbisim
 
 include "utility.csp"
 include "alt.csp"
-include "pri-alt-spec.csp"
+include "alt-spec.csp"
 include "scheduler.csp"
 
 -- Set of ProcessJ processes.
@@ -20,9 +20,9 @@ subtype Active_Channels = C1 | C2
 datatype Values = A | B
 
 -- VARIABLES
-CHANNELS = ||| c : Channels @ CHANNEL(c)
+CHANNELS = ||| c : Active_Channels @ CHANNEL(c)
 
-alphaCHANNELS = Union({alphaCHANNEL(c) | c <- Channels})
+alphaCHANNELS = Union({alphaCHANNEL(c) | c <- Active_Channels})
 
 -- PROTECTED WRITING PROCESS
 
@@ -60,8 +60,11 @@ RESTRICTED_PROCESS_SELECTOR'(pid) =
         READ(pid, c);
         data.c.load?message ->
         channel_release.c!pid ->
-        read.c.pid!message ->
-        RESTRICTED_PROCESS_SELECTOR'(pid)
+        (
+            YIELD(pid);
+            read.c.pid!message ->
+            RESTRICTED_PROCESS_SELECTOR'(pid)
+        )
     )
 
 ALT_NETWORK :: (<Nullable_Processes>, Nullable_Processes, <Channels>) -> Proc

@@ -1,3 +1,4 @@
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Process extends Thread
@@ -38,14 +39,24 @@ public class Process extends Thread
 
     public void run()
     {
+        Random rand = new Random(System.currentTimeMillis());
         while(true)
         {
-            if (!mut.claim(this))
+            try 
             {
-                yielding();
+                Thread.sleep(rand.nextLong(10, 500));
+                if (!mut.claim(this))
+                {
+                    yielding();
+                }
+                System.out.println(ID);
+                Thread.sleep(rand.nextLong(10, 500));
+                mut.release(this);
             }
-            System.out.println(ID);
-            mut.release(this);
+            catch (Exception e)
+            {
+
+            }
         }
     }
 }
