@@ -37,12 +37,12 @@ PRIVATE_CHANNEL_SPEC(chan) =
     | v <- Values
 }
 
-GENERIC_CHANNEL(writing_proc, reading_proc, chan) = 
+GENERIC_CHANNEL(writing_proc, reading_proc, chan) = sbdia(
 (
     LEFT(writing_proc, chan) 
     [alphaLEFT(writing_proc, chan) || alphaRIGHT(reading_proc, chan)] 
     RIGHT(reading_proc, chan)
-) \ PRIVATE_CHANNEL_SPEC(chan)
+) \ PRIVATE_CHANNEL_SPEC(chan))
 
 alphaGENERIC_CHANNEL(writing_proc, reading_proc, chan) = 
     diff(union(alphaLEFT(writing_proc, chan), alphaRIGHT(reading_proc, chan)), PRIVATE_CHANNEL_SPEC(chan))

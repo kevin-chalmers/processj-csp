@@ -5,8 +5,7 @@ include "channel.csp"
 channel i, selected : Operations.Channels
 
 ALT_VARIABLES = 
-    VARIABLE(selected, NONE)
-    ||| VARIABLE(i, NONE)
+    VARIABLE(selected, NONE) ||| VARIABLE(i, NONE)
 
 alphaALT_VARIABLES = 
 {
