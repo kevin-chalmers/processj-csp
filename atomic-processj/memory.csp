@@ -1,0 +1,30 @@
+-- The memory access operations of the system
+datatype Operations = load | store
+
+module Memory
+
+exports
+
+    VARIABLE :: (Complete a, Set a) => (a=>Event, a=>Event, a) -> Proc
+    VARIABLE(get, set, val) =
+        get!val -> VARIABLE(get, set, val)
+        []
+        set?newVal -> VARIABLE(get, set, newVal)
+
+    ATOMIC_VARIABLE :: (Complete a, Set a, Eq a) => (a=>Event, a=>Event, a=>a=>Bool=>Event, a=>a=>Event, a) -> Proc
+    ATOMIC_VARIABLE(get, set, cas, swap, val) =
+        get!val -> ATOMIC_VARIABLE(get, set, cas, swap, val)
+        []
+        set?newVal -> ATOMIC_VARIABLE(get, set, cas, swap, newVal)
+        []
+        (
+            cas?expected?newVal!(expected == val) ->
+            if expected == val then
+                ATOMIC_VARIABLE(get, set, cas, swap, newVal)
+            else
+                ATOMIC_VARIABLE(get, set, cas, swap, val)
+        )
+        []
+        swap?newVal!val -> ATOMIC_VARIABLE(get, set, cas, swap, newVal)
+
+endmodule

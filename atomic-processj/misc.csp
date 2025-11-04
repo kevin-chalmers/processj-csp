@@ -1,0 +1,30 @@
+-- include compression functions
+transparent diamond
+transparent sbisim
+sbdia(P) = sbisim(diamond(P))
+
+-- Helper function - allows zipping together two lists
+zip :: (Set a, Set b) => (<a>, <b>) -> <(a, b)>
+zip(< >, < >) = < >
+zip(<x>^xs, <y>^ys) = <(x, y)>^zip(xs, ys)
+
+zip3(< >, < >, < >) = < >
+zip3(<x>^xs, <y>^ys, <z>^zs) = <(x, y, z)>^zip3(xs, ys, zs)
+
+zipSet :: (Set a, Set b) => (<a>, <b>) -> {(a, b)}
+zipSet(< >, < >) = { }
+zipSet(<x>^xs, <y>^ys) = union({(x, y)}, zipSet(xs, ys))
+
+-- Helper function - reverses a list
+reverse :: (Set a) => (<a>) -> <a>
+reverse(<>) = <>
+reverse(<x>^xs) = reverse(xs)^<x>
+
+-- Gets the key set from a map
+keys :: (Set a, Set b) => ((| a => b|)) -> {a}
+keys(m) = 
+    let
+        getFirst(<>) = {}
+        getFirst(<(k, v)>^xs) = union({k}, getFirst(xs))
+    within
+        getFirst(mapToList(m))

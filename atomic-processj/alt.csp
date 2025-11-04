@@ -1,0 +1,98 @@
+module Alt
+
+    ENABLE_LOOP(selector, <>) =
+        -- Nothing to do - set I at start
+        SKIP
+
+    ENABLE_LOOP(selector, <next>^guards) =
+        -- Try and set the user
+        casUser.next!NullProc!selector?succ ->
+        if succ then
+            -- Try and set the channel state
+            casChanState.next!IDLE!ALTING?succ ->
+            if succ then
+                -- Channel not ready, but now enabled.
+                -- Continue enable sequence.
+                ENABLE_LOOP(selector, guards)
+            else
+                -- User was NullProc, but channel now writing
+                -- Set the alt index.
+                setAltIdx!next ->
+                -- We know the writer will see this and schedule us
+                -- We will yield.
+                SKIP
+        else
+            -- User not NullProc so must be writing.
+            -- We don't touch state, so writer won't know we are here
+            -- Set alt index, scheduled, and exit. We will yield.
+            setAltIdx!next ->
+            setProcState.selector!SCHEDULED ->
+            SKIP
+
+    DISABLE_LOOP(selector, <>) =
+        setProcState.selector!ACTIVE ->
+        SKIP
+
+    DISABLE_LOOP(selector, <next>^guards) =
+        -- Try set user to NullProc
+        casUser.next!selector!NullProc?succ ->
+        if succ then
+            -- Try to set state to IDLE
+            casChanState.next!ALTING!IDLE?succ ->
+            if succ then
+                -- There wasn't a writer when we looked.
+                -- Continue disabling.
+                DISABLE_LOOP(selector, guards)
+            else
+                -- Writer has appeared. Set this as index
+                setAltSelected!next ->
+                -- And continue
+                DISABLE_LOOP(selector, guards)
+        else
+            -- Writer is there. Set this as index
+            setAltSelected!next ->
+            -- And continue
+            DISABLE_LOOP(selector, guards)
+
+    -- Helper function - builds list to disable
+    buildDisableList(<>, end) = <>
+    buildDisableList(<x>^xs, end) =
+        if x == end then
+            <x>
+        else
+            <x>^buildDisableList(xs, end)
+
+exports
+    ENABLE(selector) =
+        setProcState.selector!ENGAGING ->
+        setAltIdx!NullChan ->
+        ENABLE_LOOP(selector, seq(NonNullChanID))
+
+    alphaENABLE(selector) =
+    {|
+        getUser,
+        setUser.c.selector,
+        setProcState.selector.SCHEDULED,
+        setAltIdx
+        | c <- NonNullChanID
+    |}
+
+    DISABLE(selector) =
+        setProcState.selector!DISENGAGING ->
+        setAltSelected!NullChan ->
+        getAltIdx?end ->
+        if end == NullChan then
+            DISABLE_LOOP(selector, reverse(seq(NonNullChanID)))
+        else
+            DISABLE_LOOP(selector, reverse(buildDisableList(seq(NonNullChanID), end)))
+
+    alphaDISABLE(selector) =
+    {|
+        getUser,
+        setUser.c.NullProc,
+        getAltIdx,
+        setAltSelected
+        | c <- NonNullChanID
+    |}
+
+endmodule

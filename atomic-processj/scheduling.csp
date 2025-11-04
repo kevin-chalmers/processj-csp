@@ -1,0 +1,278 @@
+module SchedulerSystem(N)
+
+    datatype ThreadID = MAN | RUN.{1..N}
+    subtype RunnerID = RUN.{1..N}
+    subtype ManagerID = MAN
+
+    module RunQueue
+
+        channel lin_enqueue : ManagerID.NonNullPID
+        channel lin_dequeue : RunnerID.PID
+
+        USER(MAN) =
+            enqueue.MAN?pid ->
+            lin_enqueue.MAN.pid ->
+            end_enqueue.MAN ->
+            USER(MAN)
+
+        USER(runner) =
+            dequeue.runner ->
+            lin_dequeue.runner?pid ->
+            return.runner.pid ->
+            USER(runner)
+
+        QUEUE_SPEC(q) = length(q) <= card(NonNullPID) & (
+            (
+                enqueue?_?_ ->
+                QUEUE_SPEC(q)
+            )
+            []
+            (
+                lin_enqueue?id?pid ->
+                QUEUE_SPEC(q^<pid>)
+            )
+            []
+            (
+                end_enqueue?_ ->
+                QUEUE_SPEC(q)
+            )
+            []
+            (
+                dequeue?_ ->
+                QUEUE_SPEC(q)
+            )
+            []
+            (
+                length(q) > 0 &
+                    lin_dequeue?id!head(q) ->
+                    QUEUE_SPEC(tail(q))
+            )
+            []
+            (
+                return?_?_ ->
+                QUEUE_SPEC(q)
+            )
+        )
+
+    exports
+
+        channel enqueue : ManagerID.NonNullPID
+        channel end_enqueue : ManagerID
+        channel dequeue : RunnerID
+        channel return : RunnerID.PID
+
+        QUEUE = sbdia((
+            (||| id : ThreadID @ USER(id))
+            [| {| enqueue, lin_enqueue, end_enqueue, dequeue, lin_dequeue, return |} |]
+            QUEUE_SPEC(<>)
+        ) \ {| lin_enqueue, lin_dequeue |})
+
+        alpha =
+        {|
+            enqueue,
+            end_enqueue,
+            dequeue,
+            return
+        |}
+
+    endmodule
+
+    module Semaphore
+
+        channel begin_acquire, lin_acquire, end_acquire : RunnerID
+        channel begin_release, lin_release, end_release : ManagerID
+
+        USER(MAN) =
+            begin_release.MAN ->
+            lin_release.MAN ->
+            end_release.MAN ->
+            USER(MAN)
+
+        USER(runner) =
+            begin_acquire.runner ->
+            lin_acquire.runner ->
+            end_acquire.runner ->
+            USER(runner)
+
+        SEMAPHORE_SPEC(permits) = permits <= card(NonNullPID) & (
+            (
+                begin_acquire?_ ->
+                SEMAPHORE_SPEC(permits)
+            )
+            []
+            (
+                permits > 0 &
+                    lin_acquire?_ ->
+                    SEMAPHORE_SPEC(permits - 1)
+            )
+            []
+            (
+                end_acquire?_ ->
+                SEMAPHORE_SPEC(permits)
+            )
+            []
+            (
+                begin_release?_ ->
+                SEMAPHORE_SPEC(permits)
+            )
+            []
+            (
+                lin_release?_ ->
+                SEMAPHORE_SPEC(permits + 1)
+            )
+            []
+            (
+                end_release?_ ->
+                SEMAPHORE_SPEC(permits)
+            )
+        )
+
+        alphaSPEC =
+        {|
+            begin_acquire,
+            lin_acquire,
+            end_acquire,
+            begin_release,
+            lin_release,
+            end_release
+        |}
+
+    exports
+
+        SEMAPHORE = sbdia(
+        (
+            (||| t : ThreadID @ USER(t))
+            [| alphaSPEC |]
+            SEMAPHORE_SPEC(0)
+        ) \ {| lin_acquire, lin_release |})
+
+        alpha =
+        {|
+            begin_acquire,
+            end_acquire,
+            begin_release,
+            end_release
+        |}
+
+        ACQUIRE(pid) =
+            begin_acquire.pid ->
+            end_acquire.pid ->
+            SKIP
+
+        RELEASE(pid) =
+            begin_release.pid ->
+            end_release.pid ->
+            SKIP
+
+    endmodule
+
+    RUNNER(id) =
+        Semaphore::ACQUIRE(id);
+        RunQueue::dequeue!id ->
+        RunQueue::return.id?pid : NonNullPID ->
+        run.pid ->
+        yield.pid ->
+        RUNNER(id)
+
+    SCHEDULE_MANAGER =
+        schedule?pid ->
+        RunQueue::enqueue.MAN!pid ->
+        RunQueue::end_enqueue.MAN ->
+        Semaphore::RELEASE(MAN);
+        SCHEDULE_MANAGER
+
+exports
+
+    channel run, yield, schedule : NonNullPID
+
+    SCHEDULER_SYSTEM = sbdia(
+    (
+        RunQueue::QUEUE
+        [| RunQueue::alpha |]
+        sbdia(
+            (
+                (
+                    (||| id : RunnerID @ RUNNER(id))
+                     ||| 
+                    SCHEDULE_MANAGER
+                )
+                [| Semaphore::alpha |]
+                Semaphore::SEMAPHORE
+            ) \ Semaphore::alpha
+        )
+    ) \ RunQueue::alpha)
+
+    alpha =
+    {|
+        schedule,
+        run,
+        yield
+    |}
+
+    SCHEDULE :: (PID) -> Proc
+    SCHEDULE(pid) =
+        -- Attempt to set scheduled from ENGAGING
+        casProcState.pid!ENGAGING!SCHEDULED?succ ->
+        if succ then
+            -- We scheduled before it was waiting.
+            -- Other process should see.
+            SKIP
+        else
+            -- Wasn't engaging. Attempt as waiting
+            casProcState.pid!WAITING!SCHEDULED?succ ->
+            if succ then
+                -- We scheduled. Add to the run queue
+                schedule.pid ->
+                SKIP
+            else
+                -- Assume process does not need scheduled
+                -- This can never happen (tested with STOP)
+                SKIP
+    
+    YIELD :: (PID) -> Proc
+    YIELD(pid) =
+        DESCHEDULE(pid);
+        (
+            yield.pid ->
+            run.pid ->
+            setProcState.pid!ACTIVE ->
+            SKIP
+        )
+
+    DESCHEDULE :: (PID) -> Proc
+    DESCHEDULE(pid) =
+        -- Get own state
+        getProcState.pid?oldState ->
+        -- Are we active
+        if oldState == ACTIVE then
+            -- Courtesy yield.
+            setProcState.pid!SCHEDULED ->
+            -- Add to the run queue
+            schedule.pid ->
+            SKIP
+        else if oldState == ENGAGING then
+            -- Try and cas to WAITING
+            casProcState.pid!ENGAGING!WAITING?succ ->
+            if succ then
+                -- Successfully changed. We can complete.
+                SKIP
+            else
+                -- Someone has set up scheduled. We must schedule ourselves.
+                schedule.pid ->
+                SKIP
+        else if oldState == SCHEDULED then
+            -- Someone has scheduled us. Add to run queue
+            schedule.pid ->
+            SKIP
+        else
+            -- Should never happen
+            STOP
+
+    START :: (PID) -> Proc
+    START(pid) =
+        schedule.pid ->
+        run.pid ->
+        setProcState.pid!ACTIVE ->
+        SKIP
+
+endmodule

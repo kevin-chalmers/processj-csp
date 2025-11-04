@@ -1,0 +1,92 @@
+module Channel
+
+    WRITE_WITH_READER(pid, oldUser, chan, item) =
+        -- Reader there and committed.
+        -- Complete communication - don't yield.
+        setUser.chan!NullProc ->
+        setData.oldUser!item ->
+        setChanState.chan!IDLE ->
+        SCHEDULER::SCHEDULE(oldUser);
+        setProcState.pid!ACTIVE ->
+        SKIP
+
+    READ_WITH_WRITER(pid, chan) =
+        -- Writer is here. Complete
+        -- Writer is here. Get its ID.
+        getUser.chan?writer : NonNullPID ->
+        -- Set user to NullProc
+        setUser.chan!NullProc ->
+        -- Get the data from the writer
+        getData.writer?item ->
+        -- And set our data
+        setData.pid!item ->
+        -- Set the channel IDLE
+        setChanState.chan!IDLE ->
+        -- Schedule the writer
+        SCHEDULER::SCHEDULE(writer);
+        -- Set ourselves active
+        setProcState.pid!ACTIVE ->
+        -- And continue
+        SKIP
+
+exports
+
+    -- WRITE is initially aggressive (hard setting the channel to WRITING).
+    -- After it determines what to do based on the previous state it becomes
+    -- passive and yields for READ/SELECT.
+    WRITE(pid, chan, item) =
+        -- First, set process engaging
+        setProcState.pid!ENGAGING ->
+        -- Then we set process data
+        setData.pid!item ->
+        -- Hard swap state to WRITING
+        swapChanState.chan!WRITING?oldState ->
+        -- Hard swap user to pid
+        swapUser.chan!pid?oldUser ->
+        if oldState == READING and oldUser != NullProc then
+            -- Complete communication
+            WRITE_WITH_READER(pid, oldUser, chan, item)
+        else if (oldState == ALTING or oldState == IDLE) and oldUser != NullProc then
+                -- Selecting procedure has begun.
+                -- We don't know if enabling, disabling, or waiting.
+                -- First get process state.
+                getProcState.oldUser?userState ->
+                if userState == ENGAGING or userState == WAITING then
+                    -- Schedule. Worst case we miss and cause spurious wakeup.
+                    -- Alt will deal with this later.
+                    SCHEDULER::SCHEDULE(oldUser);
+                    SCHEDULER::YIELD(pid)
+                else
+                    -- Selecting process must have been scheduled already.
+                    -- Yield
+                    SCHEDULER::YIELD(pid)
+        else
+            -- We didn't learn enough information to be sure what to do.
+            -- Either nothing else there, or we aren't quite sure of the state.
+            -- Ordering of operations means reader or selector will deal with this.
+            SCHEDULER::YIELD(pid)
+            
+    -- Read must determine if the WRITE is active.
+    -- If not it will YIELD first. Otherwise it will complete the READ
+    -- knowing WRITE is active.
+    READ(pid, chan) =
+        -- Set ourselves engaging
+        setProcState.pid!ENGAGING ->
+        -- Try and set channel to read
+        casChanState.chan!IDLE!READING?succ ->
+        if succ then
+            -- Writer wasn't there.
+            -- Try to set the user.
+            casUser.chan!NullProc!pid?succ ->
+            if succ then
+                -- Writer not here. Let it complete when it sees us.
+                SCHEDULER::YIELD(pid)
+            else
+                -- Writer appeared. Complete communication.
+                READ_WITH_WRITER(pid, chan)
+        else
+            -- Writer is here. Complete communication.
+            READ_WITH_WRITER(pid, chan)
+        
+
+endmodule

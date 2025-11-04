@@ -1,0 +1,101 @@
+include "misc.csp"
+include "memory.csp"
+include "scheduling.csp"
+include "mutex.csp"
+
+datatype Value = NullValue | V1 | V2
+subtype NonNullValue = V1 | V2
+
+datatype PID = NullProc | P1 | P2 | P3 | P4
+subtype NonNullPID = P1 | P2 | P3 | P4
+
+-- ACTIVE - READY + RUNNING
+-- ENGAGING -- NOT READY + RUNNING
+-- DISENGAGING -- NOT READY + RUNNING
+-- WAITING -- NOT READY + NOT RUNNING
+-- SCHEDULED -- READY + NOT RUNNING
+datatype PID_STATE = ACTIVE | ENGAGING | DISENGAGING | WAITING | SCHEDULED
+channel ProcState : Operations.NonNullPID.PID_STATE
+channel ProcStateCAS : NonNullPID.PID_STATE.PID_STATE.Bool
+channel ProcStateSWAP : NonNullPID.PID_STATE.PID_STATE
+channel ProcData : Operations.NonNullPID.Value
+PROCESSES =
+    (||| p : NonNullPID 
+            @ Memory::ATOMIC_VARIABLE(ProcState.load.p, ProcState.store.p, ProcStateCAS.p, ProcStateSWAP.p, SCHEDULED))
+    |||
+    (||| p : NonNullPID 
+            @ Memory::VARIABLE(ProcData.load.p, ProcData.store.p, NullValue))
+
+getProcState = ProcState.load
+setProcState = ProcState.store
+casProcState = ProcStateCAS
+swapProcState = ProcStateSWAP
+getData = ProcData.load
+setData = ProcData.store
+
+datatype Chan_STATE = IDLE | ALTING | WRITING | READING
+channel ChanUser : Operations.NonNullChanID.PID
+channel ChanUserCAS : NonNullChanID.PID.PID.Bool
+channel ChanUserSWAP : NonNullChanID.PID.PID
+channel ChanState : Operations.NonNullChanID.Chan_STATE
+channel ChanStateCAS : NonNullChanID.Chan_STATE.Chan_STATE.Bool
+channel ChanStateSWAP : NonNullChanID.Chan_STATE.Chan_STATE
+CHANNELS =
+    (||| id : NonNullChanID 
+            @ Memory::ATOMIC_VARIABLE(ChanUser.load.id, ChanUser.store.id, ChanUserCAS.id, ChanUserSWAP.id, NullProc))
+    |||
+    (||| id : NonNullChanID
+            @ Memory::ATOMIC_VARIABLE(ChanState.load.id, ChanState.store.id, ChanStateCAS.id, ChanStateSWAP.id, IDLE))
+
+getUser = ChanUser.load
+setUser = ChanUser.store
+casUser = ChanUserCAS
+swapUser = ChanUserSWAP
+getChanState = ChanState.load
+setChanState = ChanState.store
+casChanState = ChanStateCAS
+swapChanState = ChanStateSWAP
+
+channel AltIdx : Operations.ChanID
+channel AltSelected : Operations.ChanID
+CHOICE =
+        Memory::VARIABLE(AltIdx.load, AltIdx.store, NullChan)
+    ||| Memory::VARIABLE(AltSelected.load, AltSelected.store, NullChan)
+
+getAltIdx = AltIdx.load
+setAltIdx = AltIdx.store
+getAltSelected = AltSelected.load
+setAltSelected = AltSelected.store
+
+alphaMEM =
+{|
+    getProcState,
+    setProcState,
+    casProcState,
+    swapProcState,
+    getData,
+    setData,
+    getUser,
+    setUser,
+    casUser,
+    swapUser,
+    getChanState,
+    setChanState,
+    casChanState,
+    swapChanState,
+    getAltIdx,
+    setAltIdx,
+    getAltSelected,
+    setAltSelected
+|}
+
+instance SCHEDULER = SchedulerSystem(NUM_RUNNERS)
+instance READ_MUTEX = Mutex(ReaderPID)
+instance WRITE_MUTEX = Mutex(WriterPID)
+
+channel start_read : NonNullChanID.ReaderPID
+channel read : NonNullChanID.ReaderPID.NonNullValue
+channel write : NonNullChanID.WriterPID.NonNullValue
+channel ack : NonNullChanID.WriterPID
+channel select : ReaderPID
+channel return : NonNullChanID

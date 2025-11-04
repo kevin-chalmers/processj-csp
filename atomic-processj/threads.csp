@@ -1,0 +1,57 @@
+WRITER(pid, chan) =
+    write.chan.pid?message ->
+    (
+        Channel::WRITE(pid, chan, message);
+        ack.chan.pid ->
+        WRITER(pid, chan)
+    )
+
+SHARED_WRITER(pid, chan) =
+    write.chan.pid?message ->
+    (
+        WRITE_MUTEX::CLAIM(pid);
+        Channel::WRITE(pid, chan, message);
+        WRITE_MUTEX::RELEASE(pid);
+        ack.chan.pid ->
+        SHARED_WRITER(pid, chan)
+    )
+
+READER(pid, chan) =
+    start_read.chan.pid ->
+    Channel::READ(pid, chan);
+    -- Get our data
+    getData.pid?value : NonNullValue ->
+    -- And return it
+    read.chan.pid.value ->
+    READER(pid, chan)
+
+SHARED_READER(pid, chan) =
+    start_read.chan.pid ->
+    READ_MUTEX::CLAIM(pid);
+    Channel::READ(pid, chan);
+    READ_MUTEX::RELEASE(pid);
+    getData.pid?value : NonNullValue ->
+    read.chan.pid.value ->
+    SHARED_READER(pid, chan)
+
+ATTEMPT_SELECT(pid) =
+    Alt::ENABLE(pid);
+    SCHEDULER::YIELD(pid);
+    Alt::DISABLE(pid);
+    getAltSelected?c ->
+    if c == NullChan then
+        ATTEMPT_SELECT(pid)
+    else
+        SKIP
+
+SELECTOR(pid) =
+    select.pid ->
+    ATTEMPT_SELECT(pid);
+    getAltSelected?c : NonNullChanID ->
+    (
+        start_read.c.pid ->
+        Channel::READ(pid, c);
+        getData.pid?value : NonNullValue ->
+        read.c.pid.value ->
+        SELECTOR(pid)
+    )

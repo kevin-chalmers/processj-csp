@@ -1,0 +1,53 @@
+include "init.csp"
+include "channel-spec.csp"
+include "channel.csp"
+include "alt-spec.csp"
+include "alt.csp"
+include "threads.csp"
+
+-- EXPERIMENT PARAMETERS
+NUM_RUNNERS = 3
+subtype ReaderPID = P1
+SelectorPID = P1
+subtype WriterPID = P2 | P3
+datatype ChanID = NullChan | C1 | C2
+subtype NonNullChanID = C1 | C2
+-- **********************
+
+writers_chans = zipSet(seq(NonNullChanID), seq(WriterPID))
+
+ALT =
+(
+    SCHEDULER::SCHEDULER_SYSTEM
+    [| SCHEDULER::alpha |]
+    (
+        (
+            (
+                (||| (c, p) : writers_chans @
+                        SCHEDULER::START(p); 
+                        WRITER(p, c)
+                )
+                |||
+                (
+                    SCHEDULER::START(SelectorPID);
+                    SELECTOR(SelectorPID)
+                )
+            )
+            [| alphaMEM |]
+            (CHANNELS ||| PROCESSES ||| CHOICE)
+        ) \ alphaMEM
+    )
+) \ SCHEDULER::alpha
+
+SPEC = AltSpec::ALT(SelectorPID, writers_chans)
+IMPL = ALT
+
+assert IMPL :[deadlock free[FD]]
+assert IMPL :[deterministic[FD]]
+assert IMPL :[divergence free[FD]]
+assert SPEC :[divergence free[FD]]
+
+assert SPEC [T= IMPL
+assert IMPL [T= SPEC
+assert SPEC [F= IMPL
+assert IMPL [F= SPEC

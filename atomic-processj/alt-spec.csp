@@ -1,0 +1,86 @@
+module AltSpec
+
+    channel transmit : NonNullChanID.NonNullValue
+
+    ALT_SPEC(selector, pairs, writing, waiting) =
+        ([] (c, p) : pairs @ 
+            write.c.p?mess -> 
+            ALT_SPEC(selector, pairs, union(writing, {c}), waiting))
+        []
+        if waiting then
+            ([] c : writing @ 
+                return.c ->
+                ALT_SPEC(selector, pairs, diff(writing, {c}), false))
+        else
+            select.selector ->
+            ALT_SPEC(selector, pairs, writing, true)
+
+    alphaALT_SPEC(selector) =
+    {|
+        write,
+        return,
+        select.selector
+    |}
+
+    ALT_USER(pid) =
+        select.pid ->
+        return?idx ->
+        start_read.idx.pid ->
+        transmit.idx?mess ->
+        read.idx.pid!mess ->
+        ALT_USER(pid)
+
+    alphaALT_USER(pid) =
+    {|
+        select.pid,
+        return,
+        start_read.c.pid,
+        transmit,
+        read.c.pid
+        | c <- NonNullChanID
+    |}
+
+    LEFT(pid, c) = 
+        write.c.pid?mess -> 
+        transmit.c!mess -> 
+        ack.c!pid -> 
+        LEFT(pid, c)
+
+    alphaLEFT(pid, c) =
+    {|
+        write.c.pid,
+        transmit.c,
+        ack.c.pid
+    |}
+
+    LEFT_PROCS(pairs) =
+        ||| (c, p) : pairs @ LEFT(p, c)
+
+    alphaLEFT_PROCS(pairs) = 
+        Union({alphaLEFT(p, c) | (c, p) <- pairs})
+
+    PRIVATE_ALT =
+    {|
+        transmit,
+        return
+    |}
+
+
+exports
+
+    ALT(selector, pairs) =
+    (
+        (
+            LEFT_PROCS(pairs)
+            [alphaLEFT_PROCS(pairs) || alphaALT_SPEC(selector)]
+            ALT_SPEC(selector, pairs, {}, false)
+        )
+        [ 
+            union(alphaLEFT_PROCS(pairs), alphaALT_SPEC(selector)) 
+            || 
+            alphaALT_USER(selector)
+        ]
+        ALT_USER(selector)
+    ) \ PRIVATE_ALT
+
+endmodule

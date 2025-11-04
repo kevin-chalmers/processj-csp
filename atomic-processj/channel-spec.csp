@@ -1,0 +1,49 @@
+-- GENERIC CHANNEL SPECIFICATION
+module ChanSpec
+
+    channel transmit : NonNullChanID.NonNullValue
+
+    LEFT(pid, chan) = 
+        write.chan.pid?mess -> 
+        transmit.chan!mess -> 
+        ack.chan!pid -> 
+        LEFT(pid, chan)
+
+    RIGHT(pid, chan) = 
+        start_read.chan.pid -> 
+        transmit.chan?mess -> 
+        read.chan.pid!mess -> 
+        RIGHT(pid, chan)
+
+    alphaLEFT(pid, chan) = 
+    {|
+        write.chan.pid, 
+        transmit.chan, 
+        ack.chan.pid
+    |}
+
+    alphaRIGHT(pid, chan) = 
+    {|
+        start_read.chan, 
+        transmit.chan, 
+        read.chan.pid
+    |}
+
+exports
+
+    CHAN_SPEC(chan, writers, readers) = 
+    (
+        (||| p : writers @ LEFT(p, chan))
+        [| {| transmit |} |]
+        (||| p : readers @ RIGHT(p, chan))
+    ) \ {| transmit.chan |}
+
+    alpha(chan) = 
+    {|
+        write.chan, 
+        ack.chan, 
+        start_read.chan, 
+        read.chan
+    |} 
+
+endmodule

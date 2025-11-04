@@ -1,0 +1,60 @@
+include "init.csp"
+include "channel-spec.csp"
+include "channel.csp"
+include "alt-spec.csp"
+include "alt.csp"
+include "threads.csp"
+
+-- EXPERIMENT PARAMETERS
+NUM_RUNNERS = 4
+subtype ReaderPID = P1
+subtype WriterPID = P2 | P3
+datatype ChanID = NullChan | C1
+subtype NonNullChanID = C1
+-- *********************
+
+chan = head(seq(NonNullChanID))
+
+CHANNEL =
+(
+    SCHEDULER::SCHEDULER_SYSTEM
+    [| SCHEDULER::alpha |]
+    (
+        (
+            (
+                (
+                    (||| p : WriterPID @
+                        SCHEDULER::START(p); 
+                        SHARED_WRITER(p, chan))
+                    [| WRITE_MUTEX::alpha |]
+                    WRITE_MUTEX::MUTEX
+                ) \ WRITE_MUTEX::alpha
+                |||
+                (
+                    (||| p : ReaderPID @
+                        SCHEDULER::START(p); 
+                        SHARED_READER(p, chan)
+                    )
+                    [| READ_MUTEX::alpha |]
+                    READ_MUTEX::MUTEX
+                ) \ READ_MUTEX::alpha
+            )
+            [| alphaMEM |]
+            (CHANNELS ||| PROCESSES)
+        ) \ alphaMEM
+    )
+) \ SCHEDULER::alpha
+
+-- Actual procs to compare
+SPEC = ChanSpec::CHAN_SPEC(chan, WriterPID, ReaderPID)
+IMPL = CHANNEL
+
+assert IMPL :[deadlock free[FD]]
+assert IMPL :[deterministic[FD]]
+assert IMPL :[divergence free[FD]]
+assert SPEC :[divergence free[FD]]
+
+assert SPEC [T= IMPL
+assert IMPL [T= SPEC
+assert SPEC [F= IMPL
+assert IMPL [F= SPEC

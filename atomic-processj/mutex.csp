@@ -1,0 +1,90 @@
+module Mutex(users)
+
+    channel begin_claim, lin_claim, end_claim : users
+    channel begin_release, lin_release, end_release : users
+
+    USER(pid) =
+        begin_claim.pid ->
+        lin_claim.pid ->
+        SCHEDULER::SCHEDULE(pid);
+        end_claim.pid ->
+        begin_release.pid ->
+        lin_release.pid ->
+        end_release.pid ->
+        USER(pid)
+    
+    MUTEX_SPEC(user) =
+    (
+        begin_claim?_ ->
+        MUTEX_SPEC(user)
+    )
+    []
+    (
+        user == NullProc &
+            lin_claim?proc ->
+            MUTEX_SPEC(proc)
+    )
+    []
+    (
+        user != NullProc &
+            end_claim.user ->
+            MUTEX_SPEC(user)
+    )
+    []
+    (
+        user != NullProc &
+            begin_release.user ->
+            MUTEX_SPEC(user)
+    )
+    []
+    (
+        user != NullProc &
+            lin_release.user ->
+            MUTEX_SPEC(NullProc)
+    )
+    []
+    (
+        end_release?_ ->
+        MUTEX_SPEC(user)
+    )
+
+    alphaSPEC =
+    {|
+        begin_claim,
+        end_claim,
+        begin_release,
+        end_release,
+        lin_claim,
+        lin_release
+    |}
+
+exports
+
+    MUTEX = sbdia(
+    (
+        (||| u : users @ USER(u))
+        [| alphaSPEC |]
+        MUTEX_SPEC(NullProc)
+    ) \ {| lin_claim, lin_release |})
+
+    alpha =
+    {|
+        begin_claim,
+        end_claim,
+        begin_release,
+        end_release
+    |}
+
+    CLAIM(pid) =
+        setProcState.pid!ENGAGING ->
+        begin_claim.pid ->
+        SCHEDULER::YIELD(pid);
+        end_claim.pid ->
+        SKIP
+
+    RELEASE(pid) =
+        begin_release.pid ->
+        end_release.pid ->
+        SKIP
+
+endmodule
